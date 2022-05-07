@@ -5,7 +5,7 @@ stages:
   - publish
 
 .container:
-  image: meld/rs-meld
+  image: runner.hideout:5000/meld/rs-meld:latest
   stage: build
   interruptible: true
   allow_failure: false
