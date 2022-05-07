@@ -1,0 +1,12 @@
+[package]
+name = "meld"
+version = "0.1.0"
+edition = "2021"
+description = "a meld client written in Rust"
+authors = ["drew <drew@parker.systems>"]
+readme = "README.md"
+license = "MIT"
+
+[dependencies]
+structopt = "^0.3.26"
+sqlite = "^0.26.0"
