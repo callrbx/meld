@@ -9,7 +9,7 @@ pub enum Command {
     Init(Vec<String>),
 }
 
-#[derive(StructOpt, Clone)]
+#[derive(Debug, StructOpt, Clone)]
 #[structopt(
     name = "meld",
     about = "meld config management client",
@@ -34,7 +34,11 @@ fn main() {
 
     let margs = args.clone();
 
-    match args.command {
+    let res = match args.command {
         Command::Init(mode_args) => init::init_core(margs, mode_args),
     };
+
+    if res {
+        util::good_message("Completed Successfully");
+    }
 }

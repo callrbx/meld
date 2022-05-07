@@ -1,10 +1,10 @@
-use sqlite;
-use std::fs;
-
+use crate::util;
 use crate::MainArgs;
+use sqlite;
+use std::{fs, io::ErrorKind};
 use structopt::StructOpt;
 
-use crate::util;
+const INIT_SCHEMA: &str = "CREATE TABLE tracked (id TEXT, set_name TEXT); CREATE TABLE versions (id TEXT, rev INTEGER, store_path_hash TEXT)";
 
 #[derive(StructOpt)]
 #[structopt(name = "meld init subcommand", author = "drew <drew@parker.systems>")]
@@ -36,25 +36,42 @@ pub fn init_core(margs: MainArgs, args: Vec<String>) -> bool {
         util::info_message("Parent directories will be created");
     }
 
-    // ensure we dont existing folders without good reason
-    if util::path_exists(&bin) {
-        if !args.force {
-            util::crit_message(&format!("Folder {} exists", &bin));
-            return false;
-        } else {
-            util::info_message(&format!("Forcing use of {}", &bin));
-        }
+    if !args.force && util::path_exists(&bin) {
+        util::crit_message("Directory exits and force not set");
+        return false;
     }
 
     // initialize a new bin
     // create folder
-    match fs::create_dir(&bin) {
+    let dir_res = if !args.make_parents {
+        fs::create_dir(&bin)
+    } else {
+        if margs.debug {
+            util::info_message("Creating parent directories");
+        }
+        fs::create_dir_all(&bin)
+    };
+    match dir_res {
         Ok(_) => {
             if margs.debug {
                 util::good_message(&format!("Created {}", &bin));
             }
         }
-        Err(e) => util::crit_message(&e.to_string()),
+        Err(e) => match e.kind() {
+            ErrorKind::AlreadyExists => {
+                util::error_message(&format!("Folder {} exists", &bin));
+                if args.force {
+                    util::info_message(&format!("Forcing use of {}", &bin));
+                } else {
+                    util::crit_message("Not using existing folder");
+                    return false;
+                }
+            }
+            _ => {
+                util::crit_message(&e.to_string());
+                return false;
+            }
+        },
     }
 
     // create sqlite db
@@ -64,11 +81,171 @@ pub fn init_core(margs: MainArgs, args: Vec<String>) -> bool {
                 util::good_message(&format!("Created {}", &db));
             }
         }
-        Err(e) => util::crit_message(&e.to_string()),
+        Err(e) => match e.kind() {
+            ErrorKind::AlreadyExists => {
+                util::error_message("Previous meld.db exists");
+                if args.force {
+                    util::info_message("Overwriting previous meld.db");
+                } else {
+                    util::crit_message("Not overwriting previous meld.db");
+                    return false;
+                }
+            }
+            _ => {
+                util::crit_message(&e.to_string());
+                return false;
+            }
+        },
     }
 
     // init sqlite db schema
-    let con = sqlite::open(db);
+    let con = match sqlite::open(&db) {
+        Ok(con) => {
+            if margs.debug {
+                util::info_message(&format!("Opened connection to {}", &db));
+            }
+            con
+        }
+        Err(e) => {
+            util::crit_message(&e.to_string());
+            return false;
+        }
+    };
+    match con.execute(INIT_SCHEMA) {
+        Ok(con) => {
+            if margs.debug {
+                util::good_message("Successfully inited schema");
+            }
+            con
+        }
+        Err(e) => {
+            util::crit_message(&e.to_string());
+            return false;
+        }
+    }
 
     return true;
+}
+
+#[cfg(test)]
+mod tests {
+    use serial_test::serial;
+
+    use super::*;
+    use crate::Command;
+
+    fn cleanup(path: &str) {
+        match fs::remove_dir_all(path) {
+            _ => {}
+        }
+    }
+
+    // test the base case of a new bin in existing dir
+    // no module arguments
+    #[test]
+    #[serial]
+    fn test_base_case() {
+        cleanup("/tmp/meld_test/");
+
+        let margs = MainArgs {
+            debug: true,
+            bin: String::from("/tmp/meld_test/"),
+            command: Command::Init(Vec::new()),
+        };
+
+        let mod_args = match margs.clone().command {
+            Command::Init(a) => a,
+        };
+
+        let res = super::init_core(margs, mod_args);
+
+        assert_eq!(res, true);
+        assert_eq!(util::path_exists("/tmp/meld_test/"), true);
+        assert_eq!(util::path_exists("/tmp/meld_test/meld.db"), true);
+
+        cleanup("/tmp/meld_test/");
+    }
+
+    // test the base case of a new bin in a new dir
+    // --parents
+    #[test]
+    #[serial]
+    fn test_parents_case() {
+        cleanup("/tmp/meld2/");
+
+        // run without parent creation - should all fail
+        let margs = MainArgs {
+            debug: true,
+            bin: String::from("/tmp/meld2/meld_test/"),
+            command: Command::Init(Vec::new()),
+        };
+
+        let mod_args = vec![];
+
+        let res = super::init_core(margs, mod_args);
+        assert_eq!(res, false);
+        assert_eq!(util::path_exists("/tmp/meld2/meld_test/"), false);
+        assert_eq!(util::path_exists("/tmp/meld2/meld_test/meld.db"), false);
+
+        // run with parent creation option - should all pass
+        let margs = MainArgs {
+            debug: true,
+            bin: String::from("/tmp/meld2/meld_test/"),
+            command: Command::Init(Vec::new()),
+        };
+
+        let mod_args = vec![String::from("init"), String::from("-p")];
+
+        let res = super::init_core(margs, mod_args);
+        assert_eq!(res, true);
+        assert_eq!(util::path_exists("/tmp/meld2/meld_test/"), true);
+        assert_eq!(util::path_exists("/tmp/meld2/meld_test/meld.db"), true);
+
+        cleanup("/tmp/meld2/");
+    }
+
+    // test the case of reusing a dir
+    // --force
+    #[test]
+    #[serial]
+    fn test_force_case() {
+        cleanup("/tmp/meld_test/");
+
+        match fs::create_dir("/tmp/meld_test") {
+            Err(e) => {
+                eprintln!("{}", e);
+                std::process::exit(1);
+            }
+            _ => {}
+        }
+
+        // run without force - should all fail
+        let margs = MainArgs {
+            debug: true,
+            bin: String::from("/tmp/meld_test/"),
+            command: Command::Init(Vec::new()),
+        };
+
+        let mod_args = vec![];
+
+        let res = super::init_core(margs, mod_args);
+        assert_eq!(res, false);
+        assert_eq!(util::path_exists("/tmp/meld_test/"), true);
+
+        // run with force option - should all pass
+        let margs = MainArgs {
+            debug: true,
+            bin: String::from("/tmp/meld_test/"),
+            command: Command::Init(Vec::new()),
+        };
+
+        let mod_args = vec![String::from("init"), String::from("-f")];
+
+        let res = super::init_core(margs, mod_args);
+        assert_eq!(res, true);
+        assert_eq!(util::path_exists("/tmp/meld_test/"), true);
+        assert_eq!(util::path_exists("/tmp/meld_test/meld.db"), true);
+
+        cleanup("/tmp/meld_test/");
+    }
 }

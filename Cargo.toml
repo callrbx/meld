@@ -10,3 +10,4 @@ license = "MIT"
 [dependencies]
 structopt = "^0.3.26"
 sqlite = "^0.26.0"
+serial_test = "^0.6.0"
