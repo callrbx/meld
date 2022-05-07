@@ -5,7 +5,7 @@ stages:
   - publish
 
 .container:
-  image: rust
+  image: meld/rs-meld
   stage: build
   interruptible: true
   allow_failure: false
@@ -16,7 +16,6 @@ Lint:
     - .container
   stage: lint
   script:
-    - rustup component add rustfmt
     - test -d ./$CUR_PROJ/src || exit
     - cargo fmt
 
