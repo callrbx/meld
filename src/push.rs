@@ -2,20 +2,25 @@ use crate::util;
 use crate::Args;
 use rusqlite::params;
 use rusqlite::Connection;
+use std::fs;
 use std::io;
-use std::{fs, io::ErrorKind};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt, Clone)]
 pub struct PushArgs {
-    #[structopt(short = "s", long = "subset", help = "config file/folder to add")]
-    subset: Option<String>,
+    #[structopt(
+        short = "s",
+        long = "subset",
+        default_value = "",
+        help = "config file/folder to add"
+    )]
+    subset: String,
 
     #[structopt(help = "config file/folder to add")]
     config_path: String,
 }
 
-fn config_exists(db: String, blob_name: String) -> bool {
+fn config_exists(db: &str, blob_name: &str) -> bool {
     let con = match Connection::open(&db) {
         Ok(con) => con,
         Err(e) => {
@@ -24,13 +29,18 @@ fn config_exists(db: String, blob_name: String) -> bool {
         }
     };
 
-    // let mut stmt = con.prepare("SELECT * FROM tracked WHERE id = ?").unwrap();
-    // let configs = stmt.query_map(params![], |row| Ok());
+    let mut stmt = con.prepare("SELECT * FROM tracked WHERE id = ?").unwrap();
 
-    return false;
+    return match stmt.exists(params![blob_name]) {
+        Ok(b) => b,
+        Err(e) => {
+            util::error_message(&e.to_string());
+            return false;
+        }
+    };
 }
 
-fn push_file(bin: String, db: String, path: String, debug: bool) -> io::Result<()> {
+fn push_file(bin: String, db: String, path: String, subset: String, debug: bool) -> io::Result<()> {
     let blobs_dir = format!("{}/blobs", bin);
 
     if debug {
@@ -46,6 +56,7 @@ fn push_file(bin: String, db: String, path: String, debug: bool) -> io::Result<(
     }
 
     let blob_name = util::hash_path(&store_path);
+    let blob_content_hash = util::hash_contents(&abs_path.to_str().unwrap());
 
     if debug {
         util::info_message(&format!("Blob Name: {}/{}", blobs_dir, blob_name))
@@ -54,10 +65,46 @@ fn push_file(bin: String, db: String, path: String, debug: bool) -> io::Result<(
     let config_blob_dir = format!("{}/{}", blobs_dir, blob_name);
 
     // check if config is already tracked
-    let is_update = config_exists(db, blob_name);
+    let is_update = config_exists(&db, &blob_name);
+    if debug && is_update {
+        util::info_message("Updating existing config");
+    }
 
-    // create configs blob folder
-    fs::create_dir(config_blob_dir)?;
+    // set version and create new blob dir if needed
+    let version = if is_update {
+        util::crit_message("update not currently supported");
+        std::process::exit(1);
+    } else {
+        // create configs blob folder
+        fs::create_dir(config_blob_dir)?;
+        "1"
+    };
+
+    // track config in meld.db
+    let con = match Connection::open(db) {
+        Ok(con) => con,
+        Err(e) => {
+            util::crit_message(&e.to_string());
+            std::process::exit(1);
+        }
+    };
+
+    if !is_update {
+        con.execute(
+            "INSERT INTO tracked (id, subset) VALUES (?1, ?2)",
+            params![blob_name, subset],
+        )
+        .unwrap();
+        con.execute(
+            "INSERT INTO versions (id, ver, sphash) VALUES (?1, ?2, ?3)",
+            params![blob_content_hash, version, blob_name],
+        )
+        .unwrap();
+    }
+
+    // copy config blob to proper directory
+    let dest_path = format!("{}/{}/{}", blobs_dir, blob_name, version);
+    fs::copy(abs_path, dest_path)?;
 
     return Ok(());
 }
@@ -87,7 +134,7 @@ pub fn push_core(margs: Args, args: PushArgs) -> bool {
         util::crit_message("currently unsupported");
         return false;
     } else {
-        if push_file(bin, db, args.config_path, margs.debug).is_err() {
+        if push_file(bin, db, args.config_path, args.subset, margs.debug).is_err() {
             return false;
         }
     }

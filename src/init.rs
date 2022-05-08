@@ -5,7 +5,8 @@ use rusqlite::{self, params, Connection};
 use std::{fs, io::ErrorKind};
 use structopt::StructOpt;
 
-const INIT_SCHEMA: &str = "CREATE TABLE tracked (id TEXT, subset TEXT); CREATE TABLE versions (id TEXT, ver INTEGER, sphash TEXT)";
+const INIT_TRACKED: &str = "CREATE TABLE tracked (id TEXT, subset TEXT)";
+const INIT_VERSIONS: &str = "CREATE TABLE versions (id TEXT, ver INTEGER, sphash TEXT)";
 
 #[derive(Debug, StructOpt, Clone)]
 pub struct InitArgs {
@@ -72,7 +73,11 @@ pub fn init_core(margs: Args, args: InitArgs) -> bool {
             }
         },
     }
-    // Create blobs dir
+    // Create blobs dir - remove if existing
+    if util::path_exists(&blobs_dir) && args.force {
+        fs::remove_dir_all(&blobs_dir).unwrap();
+    }
+
     if fs::create_dir(blobs_dir).is_err() {
         crit_message("Failed to create blobs dir");
         return false;
@@ -115,10 +120,22 @@ pub fn init_core(margs: Args, args: InitArgs) -> bool {
             return false;
         }
     };
-    match con.execute(INIT_SCHEMA, params![]) {
-        Ok(con) => {
+    match con.execute(INIT_TRACKED, params![]) {
+        Ok(_) => {
             if margs.debug {
-                util::good_message("Successfully inited schema");
+                util::good_message("Successfully inited tracked schema");
+            }
+        }
+        Err(e) => {
+            util::crit_message(&e.to_string());
+            return false;
+        }
+    }
+
+    match con.execute(INIT_VERSIONS, params![]) {
+        Ok(_) => {
+            if margs.debug {
+                util::good_message("Successfully inited versions schema");
             }
         }
         Err(e) => {

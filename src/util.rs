@@ -33,6 +33,16 @@ pub fn hash_path(path: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+pub fn hash_contents(path: &str) -> String {
+    if is_dir(path) {
+        return String::from("DIR");
+    }
+    let mut file = fs::File::open(path).unwrap();
+    let mut hasher = Sha512::new();
+    std::io::copy(&mut file, &mut hasher).unwrap();
+    format!("{:x}", hasher.finalize())
+}
+
 pub fn path_exists(path: &str) -> bool {
     fs::metadata(path).is_ok()
 }
