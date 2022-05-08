@@ -1,6 +1,7 @@
 use crate::util;
+use crate::util::crit_message;
 use crate::Args;
-use sqlite;
+use rusqlite::{self, params, Connection};
 use std::{fs, io::ErrorKind};
 use structopt::StructOpt;
 
@@ -23,6 +24,7 @@ pub struct InitArgs {
 
 pub fn init_core(margs: Args, args: InitArgs) -> bool {
     let bin = margs.bin;
+    let blobs_dir = format!("{}/blobs", &bin);
     let db = String::from(format!("{}/meld.db", &bin));
 
     if margs.debug {
@@ -70,6 +72,11 @@ pub fn init_core(margs: Args, args: InitArgs) -> bool {
             }
         },
     }
+    // Create blobs dir
+    if fs::create_dir(blobs_dir).is_err() {
+        crit_message("Failed to create blobs dir");
+        return false;
+    }
 
     // create sqlite db
     match fs::File::create(format!("{}", &db)) {
@@ -96,7 +103,7 @@ pub fn init_core(margs: Args, args: InitArgs) -> bool {
     }
 
     // init sqlite db schema
-    let con = match sqlite::open(&db) {
+    let con = match Connection::open(&db) {
         Ok(con) => {
             if margs.debug {
                 util::info_message(&format!("Opened connection to {}", &db));
@@ -108,12 +115,11 @@ pub fn init_core(margs: Args, args: InitArgs) -> bool {
             return false;
         }
     };
-    match con.execute(INIT_SCHEMA) {
+    match con.execute(INIT_SCHEMA, params![]) {
         Ok(con) => {
             if margs.debug {
                 util::good_message("Successfully inited schema");
             }
-            con
         }
         Err(e) => {
             util::crit_message(&e.to_string());
@@ -155,6 +161,7 @@ mod tests {
 
         let mod_args = match margs.clone().command {
             Command::Init(a) => a,
+            _ => std::process::exit(1),
         };
 
         let res = super::init_core(margs, mod_args);

@@ -1,12 +1,15 @@
 use init::InitArgs;
+use push::PushArgs;
 use structopt::StructOpt;
 
 mod init;
+mod push;
 mod util;
 
 #[derive(Debug, StructOpt, Clone)]
 pub enum Command {
     Init(InitArgs),
+    Push(PushArgs),
 }
 
 #[derive(Debug, StructOpt, Clone)]
@@ -36,9 +39,14 @@ fn main() {
 
     let res = match args.command {
         Command::Init(mod_args) => init::init_core(margs, mod_args),
+        Command::Push(mod_args) => push::push_core(margs, mod_args),
     };
 
     if res {
         util::good_message("Completed Successfully");
+        std::process::exit(0);
+    } else {
+        util::error_message("Failed to Meld");
+        std::process::exit(1);
     }
 }
