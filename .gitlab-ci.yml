@@ -37,18 +37,3 @@ Test:
   stage: test
   script:
     - cargo test 
-
-Publish:
-  needs: ["Test"]
-  extends:
-    - .container
-  stage: publish
-  only:
-    variables: [ $publish == "true" ]
-  variables:
-    TOKEN: "$CRATES_TOKEN"
-  script:
-    - cargo publish --dry-run
-    - cargo login $TOKEN
-    - cargo package
-    - cargo publish
