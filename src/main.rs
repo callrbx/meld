@@ -1,3 +1,4 @@
+use init::InitArgs;
 use structopt::StructOpt;
 
 mod init;
@@ -5,8 +6,7 @@ mod util;
 
 #[derive(Debug, StructOpt, Clone)]
 pub enum Command {
-    #[structopt(external_subcommand)]
-    Init(Vec<String>),
+    Init(InitArgs),
 }
 
 #[derive(Debug, StructOpt, Clone)]
@@ -15,7 +15,7 @@ pub enum Command {
     about = "meld config management client",
     author = "drew <drew@parker.systems>"
 )]
-pub struct MainArgs {
+pub struct Args {
     // Activate debug mode
     #[structopt(short, long, help = "enable debug/verbose messages")]
     pub debug: bool,
@@ -30,12 +30,12 @@ pub struct MainArgs {
 }
 
 fn main() {
-    let args = MainArgs::from_args();
+    let args = Args::from_args();
 
     let margs = args.clone();
 
     let res = match args.command {
-        Command::Init(mode_args) => init::init_core(margs, mode_args),
+        Command::Init(mod_args) => init::init_core(margs, mod_args),
     };
 
     if res {

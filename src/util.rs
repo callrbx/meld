@@ -19,3 +19,11 @@ pub fn good_message(msg: &str) {
 pub fn path_exists(path: &str) -> bool {
     fs::metadata(path).is_ok()
 }
+
+pub fn valid_meld_dir(path: &str) -> bool {
+    let bin = path;
+    let db = format!("{}/meld.db", bin);
+    let blobs = format!("{}/blobs/", bin);
+
+    return path_exists(bin) && path_exists(&db) && path_exists(&blobs);
+}

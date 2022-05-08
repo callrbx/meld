@@ -1,14 +1,13 @@
 use crate::util;
-use crate::MainArgs;
+use crate::Args;
 use sqlite;
 use std::{fs, io::ErrorKind};
 use structopt::StructOpt;
 
 const INIT_SCHEMA: &str = "CREATE TABLE tracked (id TEXT, subset TEXT); CREATE TABLE versions (id TEXT, ver INTEGER, sphash TEXT)";
 
-#[derive(StructOpt)]
-#[structopt(name = "meld init subcommand", author = "drew <drew@parker.systems>")]
-struct InitArgs {
+#[derive(Debug, StructOpt, Clone)]
+pub struct InitArgs {
     // Create path if it doesn't exist
     #[structopt(
         short = "p",
@@ -22,9 +21,7 @@ struct InitArgs {
     force: bool,
 }
 
-pub fn init_core(margs: MainArgs, args: Vec<String>) -> bool {
-    let args = InitArgs::from_iter(args);
-
+pub fn init_core(margs: Args, args: InitArgs) -> bool {
     let bin = margs.bin;
     let db = String::from(format!("{}/meld.db", &bin));
 
@@ -147,10 +144,13 @@ mod tests {
     fn test_base_case() {
         cleanup("/tmp/meld_test/");
 
-        let margs = MainArgs {
+        let margs = Args {
             debug: true,
             bin: String::from("/tmp/meld_test/"),
-            command: Command::Init(Vec::new()),
+            command: Command::Init(InitArgs {
+                make_parents: false,
+                force: false,
+            }),
         };
 
         let mod_args = match margs.clone().command {
@@ -174,13 +174,19 @@ mod tests {
         cleanup("/tmp/meld2/");
 
         // run without parent creation - should all fail
-        let margs = MainArgs {
+        let margs = Args {
             debug: true,
             bin: String::from("/tmp/meld2/meld_test/"),
-            command: Command::Init(Vec::new()),
+            command: Command::Init(InitArgs {
+                make_parents: false,
+                force: false,
+            }),
         };
 
-        let mod_args = vec![];
+        let mod_args = InitArgs {
+            make_parents: false,
+            force: false,
+        };
 
         let res = super::init_core(margs, mod_args);
         assert_eq!(res, false);
@@ -188,13 +194,19 @@ mod tests {
         assert_eq!(util::path_exists("/tmp/meld2/meld_test/meld.db"), false);
 
         // run with parent creation option - should all pass
-        let margs = MainArgs {
+        let margs = Args {
             debug: true,
             bin: String::from("/tmp/meld2/meld_test/"),
-            command: Command::Init(Vec::new()),
+            command: Command::Init(InitArgs {
+                make_parents: true,
+                force: false,
+            }),
         };
 
-        let mod_args = vec![String::from("init"), String::from("-p")];
+        let mod_args = InitArgs {
+            make_parents: true,
+            force: false,
+        };
 
         let res = super::init_core(margs, mod_args);
         assert_eq!(res, true);
@@ -220,26 +232,38 @@ mod tests {
         }
 
         // run without force - should all fail
-        let margs = MainArgs {
+        let margs = Args {
             debug: true,
             bin: String::from("/tmp/meld_test/"),
-            command: Command::Init(Vec::new()),
+            command: Command::Init(InitArgs {
+                make_parents: false,
+                force: false,
+            }),
         };
 
-        let mod_args = vec![];
+        let mod_args = InitArgs {
+            make_parents: false,
+            force: false,
+        };
 
         let res = super::init_core(margs, mod_args);
         assert_eq!(res, false);
         assert_eq!(util::path_exists("/tmp/meld_test/"), true);
 
         // run with force option - should all pass
-        let margs = MainArgs {
+        let margs = Args {
             debug: true,
             bin: String::from("/tmp/meld_test/"),
-            command: Command::Init(Vec::new()),
+            command: Command::Init(InitArgs {
+                make_parents: false,
+                force: true,
+            }),
         };
 
-        let mod_args = vec![String::from("init"), String::from("-f")];
+        let mod_args = InitArgs {
+            make_parents: false,
+            force: true,
+        };
 
         let res = super::init_core(margs, mod_args);
         assert_eq!(res, true);
