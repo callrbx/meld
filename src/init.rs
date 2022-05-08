@@ -4,7 +4,7 @@ use sqlite;
 use std::{fs, io::ErrorKind};
 use structopt::StructOpt;
 
-const INIT_SCHEMA: &str = "CREATE TABLE tracked (id TEXT, set_name TEXT); CREATE TABLE versions (id TEXT, rev INTEGER, store_path_hash TEXT)";
+const INIT_SCHEMA: &str = "CREATE TABLE tracked (id TEXT, subset TEXT); CREATE TABLE versions (id TEXT, ver INTEGER, sphash TEXT)";
 
 #[derive(StructOpt)]
 #[structopt(name = "meld init subcommand", author = "drew <drew@parker.systems>")]
