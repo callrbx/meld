@@ -191,3 +191,110 @@ pub fn push_core(margs: Args, args: PushArgs) -> bool {
 
     return true;
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+
+    use serial_test::serial;
+
+    use super::*;
+    use crate::{
+        init::{init_core, InitArgs},
+        Command,
+    };
+
+    const TEST_BIN: &str = "/tmp/meld_test/";
+    const TEST_CONF: &str = "/tmp/meld_test.config";
+
+    fn cleanup() {
+        match fs::remove_dir_all(TEST_BIN) {
+            _ => {}
+        }
+
+        match fs::remove_file(TEST_CONF) {
+            _ => {}
+        }
+    }
+
+    // init a new bin and create a sample file
+    fn init_bin() {
+        let mut file = fs::File::create(TEST_CONF).unwrap();
+        file.write_all("test=true\n".as_bytes()).unwrap();
+
+        let margs = Args {
+            debug: true,
+            bin: String::from(TEST_BIN),
+            command: Command::Init(InitArgs {
+                make_parents: false,
+                force: false,
+            }),
+        };
+
+        let mod_args = InitArgs {
+            make_parents: false,
+            force: false,
+        };
+
+        init_core(margs, mod_args);
+    }
+
+    // test adding that sample file to the bin
+    #[test]
+    #[serial]
+    fn push_config() {
+        cleanup();
+        init_bin();
+
+        let margs = Args {
+            debug: true,
+            bin: String::from(TEST_BIN),
+            command: Command::Push(PushArgs {
+                config_path: TEST_CONF.to_string(),
+                subset: "".to_string(),
+            }),
+        };
+
+        let mod_args = match margs.clone().command {
+            Command::Push(a) => a,
+            _ => std::process::exit(1),
+        };
+
+        let res = super::push_core(margs, mod_args);
+
+        assert_eq!(res, true);
+        assert_eq!(util::path_exists("/tmp/meld_test/blobs/60bf786278486a27e903dd86aafa958e712ca6896fada19e907a443006198048a4a046f25f87d09d25ee2c16b1f3fc4834ba93dc991e054922018d1f97bf3ee7/"), true);
+        assert_eq!(util::path_exists("/tmp/meld_test/blobs/60bf786278486a27e903dd86aafa958e712ca6896fada19e907a443006198048a4a046f25f87d09d25ee2c16b1f3fc4834ba93dc991e054922018d1f97bf3ee7/1"), true);
+    }
+
+    // modify that file and test the version is updated
+    #[test]
+    #[serial]
+    fn push_update_config() {
+        let mut file = fs::File::create(TEST_CONF).unwrap();
+        file.write_all("test=false\n".as_bytes()).unwrap();
+
+        let margs = Args {
+            debug: true,
+            bin: String::from(TEST_BIN),
+            command: Command::Push(PushArgs {
+                config_path: TEST_CONF.to_string(),
+                subset: "".to_string(),
+            }),
+        };
+
+        let mod_args = match margs.clone().command {
+            Command::Push(a) => a,
+            _ => std::process::exit(1),
+        };
+
+        let res = super::push_core(margs, mod_args);
+
+        assert_eq!(res, true);
+        assert_eq!(util::path_exists("/tmp/meld_test/blobs/60bf786278486a27e903dd86aafa958e712ca6896fada19e907a443006198048a4a046f25f87d09d25ee2c16b1f3fc4834ba93dc991e054922018d1f97bf3ee7/"), true);
+        assert_eq!(util::path_exists("/tmp/meld_test/blobs/60bf786278486a27e903dd86aafa958e712ca6896fada19e907a443006198048a4a046f25f87d09d25ee2c16b1f3fc4834ba93dc991e054922018d1f97bf3ee7/1"), true);
+        assert_eq!(util::path_exists("/tmp/meld_test/blobs/60bf786278486a27e903dd86aafa958e712ca6896fada19e907a443006198048a4a046f25f87d09d25ee2c16b1f3fc4834ba93dc991e054922018d1f97bf3ee7/2"), true);
+
+        cleanup();
+    }
+}

@@ -16,11 +16,11 @@ pub struct InitArgs {
         long = "parents",
         help = "make parent directories as needed"
     )]
-    make_parents: bool,
+    pub(crate) make_parents: bool,
 
     // Force use of folder
     #[structopt(short = "f", long = "force", help = "force use of an existing folder")]
-    force: bool,
+    pub(crate) force: bool,
 }
 
 pub fn init_core(margs: Args, args: InitArgs) -> bool {
@@ -164,7 +164,7 @@ mod tests {
     // no module arguments
     #[test]
     #[serial]
-    fn test_base_case() {
+    fn new_bin() {
         cleanup("/tmp/meld_test/");
 
         let margs = Args {
@@ -194,7 +194,7 @@ mod tests {
     // --parents
     #[test]
     #[serial]
-    fn test_parents_case() {
+    fn create_parents() {
         cleanup("/tmp/meld2/");
 
         // run without parent creation - should all fail
@@ -244,7 +244,7 @@ mod tests {
     // --force
     #[test]
     #[serial]
-    fn test_force_case() {
+    fn force_bin() {
         cleanup("/tmp/meld_test/");
 
         match fs::create_dir("/tmp/meld_test") {
