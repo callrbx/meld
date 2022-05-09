@@ -11,7 +11,7 @@ stages:
   allow_failure: false
   timeout: 10m
 
-list-rs:
+lint-rs:
   extends:
     - .container
   stage: lint
