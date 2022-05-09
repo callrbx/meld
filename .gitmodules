@@ -1,3 +1,3 @@
 [submodule "meld-test-suite"]
 	path = meld-test-suite
-	url = git@gitlab.parker.systems:meld/meld-test-suite.git
+	url = https://gitlab.parker.systems/meld/meld-test-suite.git
