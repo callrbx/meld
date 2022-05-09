@@ -37,3 +37,13 @@ test-rs-function:
   stage: test
   script:
     - cargo test 
+
+test-meld-suite:
+  needs: ["build-rs"]
+  stage: test
+  extends:
+    - .container
+  script:
+    - git submodule update --init
+    - cd meld-test-suite
+    - CLIENTBIN=$(pwd)/../target/release/meld ./run_tests.sh
