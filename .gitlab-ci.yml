@@ -11,16 +11,16 @@ stages:
   allow_failure: false
   timeout: 10m
 
-Lint:
+list-rs:
   extends:
     - .container
   stage: lint
   script:
     - test -d ./$CUR_PROJ/src || exit
-    - cargo fmt
+    - cargo fmt --check
 
-Build:
-  needs: ["Lint"]
+build-rs:
+  needs: ["lint-rs"]
   extends:
     - .container
   stage: build
@@ -30,8 +30,8 @@ Build:
     paths:
     - target/release/
 
-Test:
-  needs: ["Build"]
+test-rs-function:
+  needs: ["build-rs"]
   extends:
     - .container
   stage: test

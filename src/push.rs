@@ -204,8 +204,8 @@ mod tests {
         Command,
     };
 
-    const TEST_BIN: &str = "/tmp/meld_test/";
-    const TEST_CONF: &str = "/tmp/meld_test.config";
+    const TEST_BIN: &str = "/tmp/meld_push_test/";
+    const TEST_CONF: &str = "/tmp/meld_push_test.config";
 
     fn cleanup() {
         match fs::remove_dir_all(TEST_BIN) {
@@ -263,14 +263,37 @@ mod tests {
         let res = super::push_core(margs, mod_args);
 
         assert_eq!(res, true);
-        assert_eq!(util::path_exists("/tmp/meld_test/blobs/60bf786278486a27e903dd86aafa958e712ca6896fada19e907a443006198048a4a046f25f87d09d25ee2c16b1f3fc4834ba93dc991e054922018d1f97bf3ee7/"), true);
-        assert_eq!(util::path_exists("/tmp/meld_test/blobs/60bf786278486a27e903dd86aafa958e712ca6896fada19e907a443006198048a4a046f25f87d09d25ee2c16b1f3fc4834ba93dc991e054922018d1f97bf3ee7/1"), true);
+        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/"), true);
+        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/1"), true);
     }
 
     // modify that file and test the version is updated
     #[test]
     #[serial]
     fn push_update_config() {
+        cleanup();
+        init_bin();
+
+        let margs = Args {
+            debug: true,
+            bin: String::from(TEST_BIN),
+            command: Command::Push(PushArgs {
+                config_path: TEST_CONF.to_string(),
+                subset: "".to_string(),
+            }),
+        };
+
+        let mod_args = match margs.clone().command {
+            Command::Push(a) => a,
+            _ => std::process::exit(1),
+        };
+
+        let res = super::push_core(margs, mod_args);
+
+        assert_eq!(res, true);
+        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/"), true);
+        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/1"), true);
+
         let mut file = fs::File::create(TEST_CONF).unwrap();
         file.write_all("test=false\n".as_bytes()).unwrap();
 
@@ -291,9 +314,9 @@ mod tests {
         let res = super::push_core(margs, mod_args);
 
         assert_eq!(res, true);
-        assert_eq!(util::path_exists("/tmp/meld_test/blobs/60bf786278486a27e903dd86aafa958e712ca6896fada19e907a443006198048a4a046f25f87d09d25ee2c16b1f3fc4834ba93dc991e054922018d1f97bf3ee7/"), true);
-        assert_eq!(util::path_exists("/tmp/meld_test/blobs/60bf786278486a27e903dd86aafa958e712ca6896fada19e907a443006198048a4a046f25f87d09d25ee2c16b1f3fc4834ba93dc991e054922018d1f97bf3ee7/1"), true);
-        assert_eq!(util::path_exists("/tmp/meld_test/blobs/60bf786278486a27e903dd86aafa958e712ca6896fada19e907a443006198048a4a046f25f87d09d25ee2c16b1f3fc4834ba93dc991e054922018d1f97bf3ee7/2"), true);
+        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/"), true);
+        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/1"), true);
+        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/2"), true);
 
         cleanup();
     }
