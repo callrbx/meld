@@ -1,7 +1,10 @@
 #!/bin/sh
 
-echo "[*} Running Rust Function Tests"
-cargo test
+echo "[*] Building New Release"
+cargo build --release
+
+echo "[*] Running Rust Function Tests"
+cargo test --release
 RS_RES=$?
 
 if [ 0 -ne $RS_RES ]; then
