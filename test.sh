@@ -9,6 +9,8 @@ RS_RES=$?
 
 if [ 0 -ne $RS_RES ]; then
     echo "[-] Rust Tests Failed" && return 1
+else
+    echo "[+] Rust Tests Passed"
 fi
 
 echo "[*] Running Integration Suite Tests"
@@ -19,6 +21,8 @@ SUITE_RES=$?
 
 if [ 0 -ne $SUITE_RES ]; then
     echo "[-] Suite Tests Failed" && return 1
+else
+    echo "[+] Suite Tests Passed"
 fi
 
 echo ""
