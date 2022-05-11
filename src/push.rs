@@ -81,12 +81,12 @@ fn push_file(bin: String, db: String, path: String, subset: String, debug: bool)
             params![blob_name, subset],
         )
         .unwrap();
-        con.execute(
-            "INSERT INTO versions (id, ver, sphash) VALUES (?1, ?2, ?3)",
-            params![blob_content_hash, version, blob_name],
-        )
-        .unwrap();
     }
+    con.execute(
+        "INSERT INTO versions (id, ver, sphash) VALUES (?1, ?2, ?3)",
+        params![blob_content_hash, version, blob_name],
+    )
+    .unwrap();
 
     // copy config blob to proper directory
     let dest_path = format!("{}/{}/{}", blobs_dir, blob_name, version);
