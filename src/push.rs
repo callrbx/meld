@@ -8,75 +8,11 @@ use structopt::StructOpt;
 
 #[derive(Debug, StructOpt, Clone)]
 pub struct PushArgs {
-    #[structopt(
-        short = "s",
-        long = "subset",
-        default_value = "",
-        help = "config file/folder to add"
-    )]
-    subset: String,
+    #[structopt(short = "s", long = "subset", default_value = "", help = "subset tag")]
+    pub(crate) subset: String,
 
     #[structopt(help = "config file/folder to add")]
-    config_path: String,
-}
-
-fn config_exists(db: &str, blob_name: &str) -> bool {
-    let con = match Connection::open(&db) {
-        Ok(con) => con,
-        Err(e) => {
-            util::crit_message(&e.to_string());
-            std::process::exit(1);
-        }
-    };
-
-    let mut stmt = con.prepare("SELECT * FROM tracked WHERE id = ?").unwrap();
-
-    return match stmt.exists(params![blob_name]) {
-        Ok(b) => b,
-        Err(e) => {
-            util::error_message(&e.to_string());
-            return false;
-        }
-    };
-}
-
-fn get_next_version(db: &str, blob_name: &str) -> i32 {
-    let con = match Connection::open(&db) {
-        Ok(con) => con,
-        Err(e) => {
-            util::crit_message(&e.to_string());
-            std::process::exit(1);
-        }
-    };
-
-    let mut stmt = con
-        .prepare("SELECT ver FROM versions WHERE sphash = ? ORDER BY ver DESC")
-        .unwrap();
-    let mut rows = stmt.query(params![blob_name]).unwrap();
-
-    let last_ver: i32 = rows.next().unwrap().unwrap().get(0).unwrap();
-
-    return last_ver + 1;
-}
-
-fn is_update_needed(db: &str, blob_name: &str, content_hash: &str) -> bool {
-    let con = match Connection::open(&db) {
-        Ok(con) => con,
-        Err(e) => {
-            util::crit_message(&e.to_string());
-            std::process::exit(1);
-        }
-    };
-
-    let mut stmt = con
-        .prepare("SELECT id FROM versions WHERE sphash = ? ORDER BY ver DESC")
-        .unwrap();
-    let mut rows = stmt.query(params![blob_name]).unwrap();
-
-    let stored_content_hash: String = rows.next().unwrap().unwrap().get(0).unwrap();
-
-    // no updated needed if hashes match
-    return !(stored_content_hash == content_hash);
+    pub(crate) config_path: String,
 }
 
 fn push_file(bin: String, db: String, path: String, subset: String, debug: bool) -> io::Result<()> {
@@ -104,7 +40,7 @@ fn push_file(bin: String, db: String, path: String, subset: String, debug: bool)
     let config_blob_dir = format!("{}/{}", blobs_dir, blob_name);
 
     // check if config is already tracked
-    let is_update = config_exists(&db, &blob_name);
+    let is_update = util::config_exists(&db, &blob_name);
     if debug && is_update {
         util::info_message("Updating existing config");
     }
@@ -113,7 +49,7 @@ fn push_file(bin: String, db: String, path: String, subset: String, debug: bool)
         if debug {
             util::info_message("Checking if update is needed");
         }
-        if !is_update_needed(&db, &blob_name, &blob_content_hash) {
+        if !util::is_update_needed(&db, &blob_name, &blob_content_hash) {
             util::good_message("No update is needed");
             return Ok(());
         } else if debug {
@@ -123,7 +59,7 @@ fn push_file(bin: String, db: String, path: String, subset: String, debug: bool)
 
     // set version and create new blob dir if needed
     let version = if is_update {
-        get_next_version(&db, &blob_name)
+        util::get_next_version(&db, &blob_name)
     } else {
         // create configs blob folder
         fs::create_dir(config_blob_dir)?;
