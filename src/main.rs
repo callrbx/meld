@@ -1,8 +1,10 @@
 use init::InitArgs;
+use pull::PullArgs;
 use push::PushArgs;
 use structopt::StructOpt;
 
 mod init;
+mod pull;
 mod push;
 mod util;
 
@@ -10,6 +12,7 @@ mod util;
 pub enum Command {
     Init(InitArgs),
     Push(PushArgs),
+    Pull(PullArgs),
 }
 
 #[derive(Debug, StructOpt, Clone)]
@@ -40,6 +43,7 @@ fn main() {
     let res = match args.command {
         Command::Init(mod_args) => init::init_core(margs, mod_args),
         Command::Push(mod_args) => push::push_core(margs, mod_args),
+        Command::Pull(mod_args) => pull::pull_core(margs, mod_args),
     };
 
     if res {
