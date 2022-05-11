@@ -76,6 +76,26 @@ pub fn is_update_needed(db: &str, blob_name: &str, content_hash: &str) -> bool {
     return !(stored_content_hash == content_hash);
 }
 
+pub fn is_update_subset_needed(db: &str, blob_name: &str, subset: &str) -> bool {
+    let con = match Connection::open(&db) {
+        Ok(con) => con,
+        Err(e) => {
+            crit_message(&e.to_string());
+            std::process::exit(1);
+        }
+    };
+
+    let mut stmt = con
+        .prepare("SELECT subset FROM tracked WHERE id = ?")
+        .unwrap();
+    let mut rows = stmt.query(params![blob_name]).unwrap();
+
+    let stored_subset: String = rows.next().unwrap().unwrap().get(0).unwrap();
+
+    // no updated needed if hashes match
+    return !(stored_subset == subset);
+}
+
 pub fn config_exists(db: &str, blob_name: &str) -> bool {
     let con = match Connection::open(&db) {
         Ok(con) => con,

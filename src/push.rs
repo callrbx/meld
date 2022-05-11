@@ -45,15 +45,29 @@ fn push_file(bin: String, db: String, path: String, subset: String, debug: bool)
         util::info_message("Updating existing config");
     }
 
+    let mut subset_update = false;
+    let mut content_update = false;
+
     if is_update {
+        // avoid resetting subset if left blank - leave the last value
+        if subset != "" {
+            subset_update = util::is_update_subset_needed(&db, &blob_name, &subset);
+        }
+        content_update = util::is_update_needed(&db, &blob_name, &blob_content_hash);
         if debug {
             util::info_message("Checking if update is needed");
         }
-        if !util::is_update_needed(&db, &blob_name, &blob_content_hash) {
+        if !subset_update && !content_update {
             util::good_message("No update is needed");
             return Ok(());
         } else if debug {
-            util::info_message("Content Changed, updating")
+            if subset_update && content_update {
+                util::info_message("Subset+Content Changed; updating")
+            } else if subset_update {
+                util::info_message("Subset Changed; updating")
+            } else if content_update {
+                util::info_message("Content Changed; updating")
+            }
         }
     }
 
@@ -76,17 +90,31 @@ fn push_file(bin: String, db: String, path: String, subset: String, debug: bool)
     };
 
     if !is_update {
+        // new item
         con.execute(
             "INSERT INTO tracked (id, subset) VALUES (?1, ?2)",
             params![blob_name, subset],
         )
         .unwrap();
+        con.execute(
+            "INSERT INTO versions (id, ver, sphash) VALUES (?1, ?2, ?3)",
+            params![blob_content_hash, version, blob_name],
+        )
+        .unwrap();
+    } else if subset_update {
+        // update tracked metadata
+        con.execute(
+            "UPDATE tracked SET subset=?2 WHERE id=?1",
+            params![blob_name, subset],
+        )
+        .unwrap();
+    } else if content_update {
+        con.execute(
+            "INSERT INTO versions (id, ver, sphash) VALUES (?1, ?2, ?3)",
+            params![blob_content_hash, version, blob_name],
+        )
+        .unwrap();
     }
-    con.execute(
-        "INSERT INTO versions (id, ver, sphash) VALUES (?1, ?2, ?3)",
-        params![blob_content_hash, version, blob_name],
-    )
-    .unwrap();
 
     // copy config blob to proper directory
     let dest_path = format!("{}/{}/{}", blobs_dir, blob_name, version);
