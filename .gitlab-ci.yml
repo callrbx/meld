@@ -5,7 +5,7 @@ stages:
   - publish
 
 .container:
-  image: runner.hideout:5000/meld/rs-meld:latest
+  image: registry.parker.systems/meld/meld-rust:latest
   stage: build
   interruptible: true
   allow_failure: false
