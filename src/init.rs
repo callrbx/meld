@@ -1,12 +1,7 @@
-use crate::util;
-use crate::util::crit_message;
+use crate::meld::MeldError;
 use crate::Args;
-use rusqlite::{self, params, Connection};
-use std::{fs, io::ErrorKind};
+use crate::{meld, util};
 use structopt::StructOpt;
-
-const INIT_TRACKED: &str = "CREATE TABLE tracked (id TEXT, subset TEXT)";
-const INIT_VERSIONS: &str = "CREATE TABLE versions (id TEXT, ver INTEGER, sphash TEXT)";
 
 #[derive(Debug, StructOpt, Clone)]
 pub struct InitArgs {
@@ -23,125 +18,41 @@ pub struct InitArgs {
     pub(crate) force: bool,
 }
 
+fn display_result(res: Result<(), MeldError>, debug: bool, pass_msg: &str) -> bool {
+    match res {
+        Ok(_) => {
+            if debug {
+                util::good_message(pass_msg);
+            }
+            return true;
+        }
+        Err(e) => {
+            util::crit_message(&format!("Failed: {}", e));
+            return false;
+        }
+    }
+}
+
 pub fn init_core(margs: Args, args: InitArgs) -> bool {
-    let bin = margs.bin;
-    let blobs_dir = format!("{}/blobs", &bin);
-    let db = String::from(format!("{}/meld.db", &bin));
+    let debug = margs.debug;
+    let bin = meld::Bin::new(margs.bin);
 
-    if margs.debug {
-        util::info_message(&format!("Intializing new bin {}", &bin));
-    }
-
-    if margs.debug && args.make_parents {
-        util::info_message("Parent directories will be created");
-    }
-
-    if !args.force && util::path_exists(&bin) {
-        util::crit_message("Directory exits and force not set");
+    // Init Base Meld Bin
+    let res = bin.create_bin_dir(args.make_parents, args.force, debug);
+    if !display_result(res, debug, "Created Bin Dir") {
         return false;
     }
 
-    // initialize a new bin
-    // create folder
-    let dir_res = if !args.make_parents {
-        fs::create_dir(&bin)
-    } else {
-        if margs.debug {
-            util::info_message("Creating parent directories");
-        }
-        fs::create_dir_all(&bin)
-    };
-    match dir_res {
-        Ok(_) => {
-            if margs.debug {
-                util::good_message(&format!("Created {}", &bin));
-            }
-        }
-        Err(e) => match e.kind() {
-            ErrorKind::AlreadyExists => {
-                util::error_message(&format!("Folder {} exists", &bin));
-                if args.force {
-                    util::info_message(&format!("Forcing use of {}", &bin));
-                } else {
-                    util::crit_message("Not using existing folder");
-                    return false;
-                }
-            }
-            _ => {
-                util::crit_message(&e.to_string());
-                return false;
-            }
-        },
-    }
-    // Create blobs dir - remove if existing
-    if util::path_exists(&blobs_dir) && args.force {
-        fs::remove_dir_all(&blobs_dir).unwrap();
-    }
-
-    if fs::create_dir(blobs_dir).is_err() {
-        crit_message("Failed to create blobs dir");
+    // Create Meld Files in Meld Bin
+    let res = bin.create_bin_files(args.force, debug);
+    if !display_result(res, debug, "Created Bin Dir") {
         return false;
     }
 
-    // create sqlite db
-    match fs::File::create(format!("{}", &db)) {
-        Ok(_) => {
-            if margs.debug {
-                util::good_message(&format!("Created {}", &db));
-            }
-        }
-        Err(e) => match e.kind() {
-            ErrorKind::AlreadyExists => {
-                util::error_message("Previous meld.db exists");
-                if args.force {
-                    util::info_message("Overwriting previous meld.db");
-                } else {
-                    util::crit_message("Not overwriting previous meld.db");
-                    return false;
-                }
-            }
-            _ => {
-                util::crit_message(&e.to_string());
-                return false;
-            }
-        },
-    }
-
-    // init sqlite db schema
-    let con = match Connection::open(&db) {
-        Ok(con) => {
-            if margs.debug {
-                util::info_message(&format!("Opened connection to {}", &db));
-            }
-            con
-        }
-        Err(e) => {
-            util::crit_message(&e.to_string());
-            return false;
-        }
-    };
-    match con.execute(INIT_TRACKED, params![]) {
-        Ok(_) => {
-            if margs.debug {
-                util::good_message("Successfully inited tracked schema");
-            }
-        }
-        Err(e) => {
-            util::crit_message(&e.to_string());
-            return false;
-        }
-    }
-
-    match con.execute(INIT_VERSIONS, params![]) {
-        Ok(_) => {
-            if margs.debug {
-                util::good_message("Successfully inited versions schema");
-            }
-        }
-        Err(e) => {
-            util::crit_message(&e.to_string());
-            return false;
-        }
+    // Create Meld DB Schema
+    let res = bin.create_db_schema(debug);
+    if !display_result(res, debug, "Created DB Schema") {
+        return false;
     }
 
     return true;
@@ -149,6 +60,8 @@ pub fn init_core(margs: Args, args: InitArgs) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use serial_test::serial;
 
     use super::*;
