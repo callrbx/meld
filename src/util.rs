@@ -28,72 +28,8 @@ pub fn is_dir(path: &str) -> bool {
     }
 }
 
-pub fn hash_path(path: &str) -> String {
-    let mut hasher = Sha512::new();
-    hasher.update(path.as_bytes());
-    format!("{:x}", hasher.finalize())
-}
-
-pub fn hash_contents(path: &str) -> String {
-    if is_dir(path) {
-        return String::from("DIR");
-    }
-    let mut file = fs::File::open(path).unwrap();
-    let mut hasher = Sha512::new();
-    std::io::copy(&mut file, &mut hasher).unwrap();
-    format!("{:x}", hasher.finalize())
-}
-
 pub fn path_exists(path: &str) -> bool {
     fs::metadata(path).is_ok()
-}
-
-pub fn valid_meld_dir(path: &str) -> bool {
-    let bin = path;
-    let db = format!("{}/meld.db", bin);
-    let blobs = format!("{}/blobs/", bin);
-
-    return path_exists(bin) && path_exists(&db) && path_exists(&blobs);
-}
-
-pub fn is_update_needed(db: &str, blob_name: &str, content_hash: &str) -> bool {
-    let con = match Connection::open(&db) {
-        Ok(con) => con,
-        Err(e) => {
-            crit_message(&e.to_string());
-            std::process::exit(1);
-        }
-    };
-
-    let mut stmt = con
-        .prepare("SELECT id FROM versions WHERE sphash = ? ORDER BY ver DESC")
-        .unwrap();
-    let mut rows = stmt.query(params![blob_name]).unwrap();
-
-    let stored_content_hash: String = rows.next().unwrap().unwrap().get(0).unwrap();
-
-    // no updated needed if hashes match
-    return !(stored_content_hash == content_hash);
-}
-
-pub fn is_update_subset_needed(db: &str, blob_name: &str, subset: &str) -> bool {
-    let con = match Connection::open(&db) {
-        Ok(con) => con,
-        Err(e) => {
-            crit_message(&e.to_string());
-            std::process::exit(1);
-        }
-    };
-
-    let mut stmt = con
-        .prepare("SELECT subset FROM tracked WHERE id = ?")
-        .unwrap();
-    let mut rows = stmt.query(params![blob_name]).unwrap();
-
-    let stored_subset: String = rows.next().unwrap().unwrap().get(0).unwrap();
-
-    // no updated needed if hashes match
-    return !(stored_subset == subset);
 }
 
 pub fn config_exists(db: &str, blob_name: &str) -> bool {

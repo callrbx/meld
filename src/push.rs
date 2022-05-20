@@ -1,4 +1,7 @@
 use crate::meld;
+use crate::meld::Config;
+use crate::meld::MeldError;
+use crate::meld::UpdateType;
 use crate::util;
 use crate::Args;
 use structopt::StructOpt;
@@ -8,14 +11,124 @@ pub struct PushArgs {
     #[structopt(short = "s", long = "subset", default_value = "", help = "subset tag")]
     pub(crate) subset: String,
 
+    #[structopt(
+        short = "f",
+        long = "force",
+        help = "force update (only effects dir configs)"
+    )]
+    pub(crate) force: bool,
+
     #[structopt(help = "config file/folder to add")]
     pub(crate) config_path: String,
+}
+
+fn push_file(config: &mut Config, debug: bool) -> bool {
+    if debug {
+        util::info_message(&format!("Attempting to track {}", config.blob_name))
+    }
+
+    let res = match config.get_update_type() {
+        UpdateType::NewConfig => config.bin.add_config(&config),
+        UpdateType::UpdateAll => config.bin.update_all(&config),
+        UpdateType::UpdateSubset => config.bin.update_subset(&config),
+        UpdateType::UpdateContent => config.bin.update_content(&config),
+        UpdateType::NoUpdate => Ok(util::good_message("No Update Needed")),
+    };
+
+    match res {
+        Ok(_) => {}
+        Err(e) => {
+            util::crit_message(&e.to_string());
+            return false;
+        }
+    }
+
+    if debug {
+        util::info_message("Copying config to blobs");
+    }
+
+    return match config.bin.push_file(config) {
+        Ok(_) => {
+            if debug {
+                util::good_message("Sucessfully copied config");
+            }
+            true
+        }
+        Err(e) => {
+            util::crit_message(&e.to_string());
+            return false;
+        }
+    };
+}
+
+fn push_dir(config: &mut Config, debug: bool, force: bool) -> bool {
+    if debug {
+        util::info_message(&format!("Attempting to track {}", config.blob_name))
+    }
+
+    let res = match config.get_update_type() {
+        UpdateType::NewConfig => config.bin.add_config(&config),
+        UpdateType::UpdateSubset => config.bin.update_subset(&config),
+        UpdateType::NoUpdate => Ok(util::good_message("No Update Needed")),
+        UpdateType::UpdateContent | UpdateType::UpdateAll => {
+            config.bin.update_subset(&config).unwrap();
+            if !force {
+                util::crit_message("Dir config exist; use -f to overwrite");
+                std::process::exit(1);
+            } else {
+                util::info_message("Updating all files in config dir");
+                config.version += 1;
+                config.bin.update_content(config)
+            }
+        }
+    };
+
+    match res {
+        Ok(_) => {}
+        Err(e) => {
+            util::crit_message(&e.to_string());
+            return false;
+        }
+    }
+
+    if debug {
+        util::info_message("Copying config dir to blobs");
+    }
+
+    return match config.bin.push_dir(config) {
+        Ok(_) => {
+            if debug {
+                util::good_message("Sucessfully copied config");
+            }
+            true
+        }
+        Err(e) => {
+            util::crit_message(&e.to_string());
+            return false;
+        }
+    };
 }
 
 pub fn push_core(margs: Args, args: PushArgs) -> bool {
     let db = meld::Bin::new(margs.bin);
 
-    return true;
+    let mut config = match meld::Config::new(args.config_path, args.subset, db) {
+        Err(e) => {
+            util::crit_message(&format!("{}", e));
+            return false;
+        }
+        Ok(c) => c,
+    };
+
+    if margs.debug {
+        util::info_message(&format!("Pushing config {}", config.real_path));
+    }
+
+    return if !config.is_dir {
+        push_file(&mut config, margs.debug)
+    } else {
+        push_dir(&mut config, margs.debug, args.force)
+    };
 }
 
 #[cfg(test)]
@@ -78,6 +191,7 @@ mod tests {
             command: Command::Push(PushArgs {
                 config_path: TEST_CONF.to_string(),
                 subset: "".to_string(),
+                force: false,
             }),
         };
 
@@ -106,6 +220,7 @@ mod tests {
             command: Command::Push(PushArgs {
                 config_path: TEST_CONF.to_string(),
                 subset: "".to_string(),
+                force: false,
             }),
         };
 
@@ -129,6 +244,7 @@ mod tests {
             command: Command::Push(PushArgs {
                 config_path: TEST_CONF.to_string(),
                 subset: "".to_string(),
+                force: false,
             }),
         };
 

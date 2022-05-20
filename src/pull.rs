@@ -10,6 +10,7 @@ use structopt::StructOpt;
 pub struct PullArgs {
     #[structopt(short = "r", long = "revert", help = "revert to a specific version")]
     revert: Option<String>,
+
     #[structopt(help = "config object to pull")]
     config: String,
 }
@@ -55,62 +56,7 @@ fn copy_config_file(
 }
 
 pub fn pull_core(margs: Args, args: PullArgs) -> bool {
-    let bin = margs.bin;
-    let db = String::from(format!("{}/meld.db", &bin));
-    let path = args.config;
-
-    // check meld bin is configured properly
-    if !util::valid_meld_dir(&bin) {
-        util::crit_message(&format!("{} is not a valid meld bin", bin));
-        return false;
-    } else if margs.debug {
-        util::info_message(&format!("Using bin {}", bin));
-    }
-
-    // TODO path translations
-    let abs_path = path_abs::PathAbs::new(&path).unwrap();
-    let store_path = abs_path.to_str().unwrap();
-
-    if margs.debug {
-        util::info_message(&format!("Resolved config to sp: {}", store_path))
-    }
-
-    let blob_name = util::hash_path(&store_path);
-    if !util::config_exists(&db, &blob_name) {
-        util::crit_message("Could not find config in the bin");
-        return false;
-    } else if margs.debug {
-        util::info_message(&format!("{} is a valid config!", &store_path));
-    }
-
-    if util::path_exists(&path) {
-        if margs.debug {
-            util::info_message("Attempting to pull existing config");
-        }
-
-        let blob_name = util::hash_path(&store_path);
-        let content_hash = util::hash_contents(&path);
-
-        if args.revert.is_none() && !util::is_update_needed(&db, &blob_name, &content_hash) {
-            util::good_message("Config is up to date with bin!");
-            return true;
-        } else if args.revert.is_some() {
-            util::info_message("Bypassing update check; revert");
-        } else {
-            util::info_message("Checksum doesn't match DB; updating");
-        }
-    } else {
-        if margs.debug {
-            util::info_message("Attempting to pull new config");
-        }
-    }
-
-    // determine if the tracked config is a dir
-    return if util::config_is_dir(&db, &blob_name) {
-        copy_config_dir()
-    } else {
-        copy_config_file(&bin, &db, &path, &blob_name, margs.debug, args.revert)
-    };
+    return true;
 }
 
 #[cfg(test)]
@@ -169,6 +115,7 @@ mod tests {
             command: Command::Push(PushArgs {
                 config_path: TEST_CONF.to_string(),
                 subset: "".to_string(),
+                force: false,
             }),
         };
 

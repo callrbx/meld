@@ -57,7 +57,6 @@ pub fn init_core(margs: Args, args: InitArgs) -> bool {
 
     return true;
 }
-
 #[cfg(test)]
 mod tests {
     use std::fs;
