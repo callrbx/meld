@@ -59,7 +59,7 @@ fn pull_dir(config: &mut Config, debug: bool, version: Option<String>, force: bo
 pub fn pull_core(margs: Args, args: PullArgs) -> bool {
     let bin = meld::Bin::new(margs.bin);
 
-    let mut config = match meld::Config::new(args.config, "".to_string(), bin, true) {
+    let mut config = match meld::Config::new(args.config, "".to_string(), "".to_string(), bin, true) {
         Err(e) => {
             util::crit_message(&format!("{}", e));
             return false;
@@ -135,6 +135,7 @@ mod tests {
             command: Command::Push(PushArgs {
                 config_path: TEST_CONF.to_string(),
                 subset: "".to_string(),
+                tag: "".to_string(),
                 force: false,
             }),
         };

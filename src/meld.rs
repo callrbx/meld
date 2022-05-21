@@ -239,7 +239,7 @@ impl Bin {
 
         match con.execute(
             "INSERT INTO tracked (id, path, tag, subset) VALUES (?1, ?2,?3, ?4)",
-            params![config.blob_name, config.real_path, config.tag config.subset],
+            params![config.blob_name, config.real_path, config.tag, config.subset],
         ) {
             Ok(_) => {}
             Err(e) => {

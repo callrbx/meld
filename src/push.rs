@@ -192,6 +192,7 @@ mod tests {
             command: Command::Push(PushArgs {
                 config_path: TEST_CONF.to_string(),
                 subset: "".to_string(),
+                tag: "".to_string(),
                 force: false,
             }),
         };
@@ -221,6 +222,7 @@ mod tests {
             command: Command::Push(PushArgs {
                 config_path: TEST_CONF.to_string(),
                 subset: "".to_string(),
+                tag: "".to_string(),
                 force: false,
             }),
         };
@@ -245,6 +247,7 @@ mod tests {
             command: Command::Push(PushArgs {
                 config_path: TEST_CONF.to_string(),
                 subset: "".to_string(),
+                tag: "".to_string(),
                 force: false,
             }),
         };
