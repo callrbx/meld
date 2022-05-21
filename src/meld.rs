@@ -543,6 +543,7 @@ impl Bin {
 
         let mut opt = fs_extra::dir::CopyOptions::new();
         opt.copy_inside = true;
+        opt.content_only = true;
         return match fs_extra::dir::copy(blob_ver_path, &config.real_path, &opt) {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -648,8 +649,6 @@ impl Config {
         // Get real path and store path
         let (real_path, store_path) = Config::translate_stored_path(&path);
         let blob_name = Config::hash_path(&store_path);
-
-        println!("STorePath: {}", store_path);
 
         // verify config exists; either in file in push or db if pull
         if !is_pull {
