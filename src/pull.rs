@@ -1,120 +1,86 @@
+use crate::meld;
+use crate::meld::Config;
 use crate::util;
 use crate::Args;
-use path_abs;
-use path_abs::PathInfo;
-use std::fs;
 
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt, Clone)]
 pub struct PullArgs {
-    #[structopt(short = "r", long = "revert", help = "revert to a specific version")]
-    revert: Option<String>,
+    #[structopt(short = "v", long = "version", help = "revert to a specific version")]
+    version: Option<String>,
+
+    #[structopt(short = "f", long = "force", help = "force update on existing dir")]
+    force: bool,
+
     #[structopt(help = "config object to pull")]
     config: String,
 }
 
-fn copy_config_dir() -> bool {
-    //     if debug {
-    //         util::info_message(&format!("Pulling config dir {}", blob_name));
-    //     }
-    util::crit_message("currently unsupported");
+fn pull_file(config: &mut Config, debug: bool, version: Option<String>) -> bool {
+    if debug {
+        util::info_message(&format!("Pulling config file {}", config.blob_name));
+    }
 
-    return false;
+    return match config.bin.pull_file(config, version) {
+        Ok(_) => {
+            if debug {
+                util::good_message("Config pulled successfully");
+            }
+            true
+        }
+        Err(e) => {
+            util::crit_message(&e.to_string());
+            false
+        }
+    };
 }
 
-fn copy_config_file(
-    bin: &str,
-    db: &str,
-    real_path: &str,
-    blob_name: &str,
-    debug: bool,
-    revert: Option<String>,
-) -> bool {
+fn pull_dir(config: &mut Config, debug: bool, version: Option<String>, force: bool) -> bool {
     if debug {
-        util::info_message(&format!("Pulling config file {}", blob_name));
+        util::info_message(&format!("Pulling config dir {}", config.blob_name));
     }
 
-    let vers = match revert {
-        Some(r) => r,
-        None => util::get_cur_version(&db, &blob_name).to_string(),
-    };
-    let blob_ver_path = format!("{}/blobs/{}/{}", bin, blob_name, vers);
-    if !util::path_exists(&blob_ver_path) {
-        util::crit_message(&format!("Could not find {}", blob_ver_path));
-        return false;
-    }
-
-    return match fs::copy(blob_ver_path, real_path) {
-        Ok(_) => true,
+    // Match last tracked version or user specified
+    return match config.bin.pull_dir(config, version, force) {
+        Ok(_) => {
+            if debug {
+                util::good_message("Config pulled successfully");
+            }
+            true
+        }
         Err(e) => {
-            util::crit_message(&format!("Failed to copy: {}", e));
+            util::crit_message(&e.to_string());
             false
         }
     };
 }
 
 pub fn pull_core(margs: Args, args: PullArgs) -> bool {
-    let bin = margs.bin;
-    let db = String::from(format!("{}/meld.db", &bin));
-    let path = args.config;
+    let bin = meld::Bin::new(margs.bin);
 
-    // check meld bin is configured properly
-    if !util::valid_meld_dir(&bin) {
-        util::crit_message(&format!("{} is not a valid meld bin", bin));
-        return false;
-    } else if margs.debug {
-        util::info_message(&format!("Using bin {}", bin));
-    }
-
-    // TODO path translations
-    let abs_path = path_abs::PathAbs::new(&path).unwrap();
-    let store_path = abs_path.to_str().unwrap();
+    let mut config = match meld::Config::new(args.config, "".to_string(), bin, true) {
+        Err(e) => {
+            util::crit_message(&format!("{}", e));
+            return false;
+        }
+        Ok(c) => c,
+    };
 
     if margs.debug {
-        util::info_message(&format!("Resolved config to sp: {}", store_path))
+        util::info_message(&format!("Pulling config {}", config.real_path));
     }
 
-    let blob_name = util::hash_path(&store_path);
-    if !util::config_exists(&db, &blob_name) {
-        util::crit_message("Could not find config in the bin");
-        return false;
-    } else if margs.debug {
-        util::info_message(&format!("{} is a valid config!", &store_path));
-    }
-
-    if util::path_exists(&path) {
-        if margs.debug {
-            util::info_message("Attempting to pull existing config");
-        }
-
-        let blob_name = util::hash_path(&store_path);
-        let content_hash = util::hash_contents(&path);
-
-        if args.revert.is_none() && !util::is_update_needed(&db, &blob_name, &content_hash) {
-            util::good_message("Config is up to date with bin!");
-            return true;
-        } else if args.revert.is_some() {
-            util::info_message("Bypassing update check; revert");
-        } else {
-            util::info_message("Checksum doesn't match DB; updating");
-        }
+    return if !config.is_dir {
+        pull_file(&mut config, margs.debug, args.version)
     } else {
-        if margs.debug {
-            util::info_message("Attempting to pull new config");
-        }
-    }
-
-    // determine if the tracked config is a dir
-    return if util::config_is_dir(&db, &blob_name) {
-        copy_config_dir()
-    } else {
-        copy_config_file(&bin, &db, &path, &blob_name, margs.debug, args.revert)
+        pull_dir(&mut config, margs.debug, args.version, args.force)
     };
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::io::Write;
 
     use serial_test::serial;
@@ -169,6 +135,7 @@ mod tests {
             command: Command::Push(PushArgs {
                 config_path: TEST_CONF.to_string(),
                 subset: "".to_string(),
+                force: false,
             }),
         };
 
@@ -196,7 +163,8 @@ mod tests {
             bin: String::from(TEST_BIN),
             command: Command::Pull(PullArgs {
                 config: TEST_CONF.to_string(),
-                revert: None,
+                version: None,
+                force: false,
             }),
         };
 
@@ -226,7 +194,8 @@ mod tests {
             bin: String::from(TEST_BIN),
             command: Command::Pull(PullArgs {
                 config: TEST_CONF.to_string(),
-                revert: Some("1".to_string()),
+                version: Some("1".to_string()),
+                force: false,
             }),
         };
 
@@ -256,7 +225,8 @@ mod tests {
             bin: String::from(TEST_BIN),
             command: Command::Pull(PullArgs {
                 config: TEST_CONF.to_string(),
-                revert: Some("100".to_string()), // bad reversion
+                version: Some("100".to_string()), // bad reversion
+                force: false,
             }),
         };
 

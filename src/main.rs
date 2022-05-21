@@ -4,6 +4,7 @@ use push::PushArgs;
 use structopt::StructOpt;
 
 mod init;
+mod meld;
 mod pull;
 mod push;
 mod util;

@@ -1,9 +1,8 @@
+use crate::meld;
+use crate::meld::Config;
+use crate::meld::UpdateType;
 use crate::util;
 use crate::Args;
-use rusqlite::params;
-use rusqlite::Connection;
-use std::fs;
-use std::io;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt, Clone)]
@@ -11,154 +10,129 @@ pub struct PushArgs {
     #[structopt(short = "s", long = "subset", default_value = "", help = "subset tag")]
     pub(crate) subset: String,
 
+    #[structopt(
+        short = "f",
+        long = "force",
+        help = "force update (only effects dir configs)"
+    )]
+    pub(crate) force: bool,
+
     #[structopt(help = "config file/folder to add")]
     pub(crate) config_path: String,
 }
 
-fn push_file(bin: String, db: String, path: String, subset: String, debug: bool) -> io::Result<()> {
-    let blobs_dir = format!("{}/blobs", bin);
-
+fn push_file(config: &mut Config, debug: bool) -> bool {
     if debug {
-        util::info_message(&format!("Attempting to track {}", path))
+        util::info_message(&format!("Attempting to track {}", config.blob_name))
     }
 
-    // TODO path translations
-    let abs_path = fs::canonicalize(path).unwrap();
-    let store_path = abs_path.to_str().unwrap();
-
-    if debug {
-        util::info_message(&format!("Tracking as {}", store_path))
-    }
-
-    let blob_name = util::hash_path(&store_path);
-    let blob_content_hash = util::hash_contents(&abs_path.to_str().unwrap());
-
-    if debug {
-        util::info_message(&format!("Blob Name: {}/{}", blobs_dir, blob_name))
-    }
-
-    let config_blob_dir = format!("{}/{}", blobs_dir, blob_name);
-
-    // check if config is already tracked
-    let is_update = util::config_exists(&db, &blob_name);
-    if debug && is_update {
-        util::info_message("Updating existing config");
-    }
-
-    let mut subset_update = false;
-    let mut content_update = false;
-
-    if is_update {
-        // avoid resetting subset if left blank - leave the last value
-        if subset != "" {
-            subset_update = util::is_update_subset_needed(&db, &blob_name, &subset);
-        }
-        content_update = util::is_update_needed(&db, &blob_name, &blob_content_hash);
-        if debug {
-            util::info_message("Checking if update is needed");
-        }
-        if !subset_update && !content_update {
-            util::good_message("No update is needed");
-            return Ok(());
-        } else if debug {
-            if subset_update && content_update {
-                util::info_message("Subset+Content Changed; updating")
-            } else if subset_update {
-                util::info_message("Subset Changed; updating")
-            } else if content_update {
-                util::info_message("Content Changed; updating")
-            }
-        }
-    }
-
-    // set version and create new blob dir if needed
-    let version = if is_update {
-        util::get_next_version(&db, &blob_name)
-    } else {
-        // create configs blob folder
-        fs::create_dir(config_blob_dir)?;
-        1
+    let res = match config.get_update_type() {
+        UpdateType::NewConfig => config.bin.add_config(&config),
+        UpdateType::UpdateAll => config.bin.update_all(&config),
+        UpdateType::UpdateSubset => config.bin.update_subset(&config),
+        UpdateType::UpdateContent => config.bin.update_content(&config),
+        UpdateType::NoUpdate => Ok(util::good_message("No Update Needed")),
     };
 
-    // track config in meld.db
-    let con = match Connection::open(db) {
-        Ok(con) => con,
+    match res {
+        Ok(_) => {}
         Err(e) => {
             util::crit_message(&e.to_string());
-            std::process::exit(1);
-        }
-    };
-
-    if !is_update {
-        // new item
-        con.execute(
-            "INSERT INTO tracked (id, subset) VALUES (?1, ?2)",
-            params![blob_name, subset],
-        )
-        .unwrap();
-        con.execute(
-            "INSERT INTO versions (id, ver, sphash) VALUES (?1, ?2, ?3)",
-            params![blob_content_hash, version, blob_name],
-        )
-        .unwrap();
-    } else if subset_update {
-        // update tracked metadata
-        con.execute(
-            "UPDATE tracked SET subset=?2 WHERE id=?1",
-            params![blob_name, subset],
-        )
-        .unwrap();
-    } else if content_update {
-        con.execute(
-            "INSERT INTO versions (id, ver, sphash) VALUES (?1, ?2, ?3)",
-            params![blob_content_hash, version, blob_name],
-        )
-        .unwrap();
-    }
-
-    // copy config blob to proper directory
-    let dest_path = format!("{}/{}/{}", blobs_dir, blob_name, version);
-    fs::copy(abs_path, dest_path)?;
-
-    return Ok(());
-}
-
-pub fn push_core(margs: Args, args: PushArgs) -> bool {
-    let bin = margs.bin;
-    let db = String::from(format!("{}/meld.db", &bin));
-
-    // check meld bin is configured properly
-    if !util::valid_meld_dir(&bin) {
-        util::crit_message(&format!("{} is not a valid meld bin", bin));
-        return false;
-    } else if margs.debug {
-        util::info_message(&format!("Using bin {}", bin));
-    }
-
-    // check config_path exists
-    if !util::path_exists(&args.config_path) {
-        util::crit_message(&format!("{} does not exist", args.config_path));
-        return false;
-    } else if margs.debug {
-        util::info_message(&format!("Using {}", args.config_path));
-    }
-
-    // determine if config is dir or folder
-    if util::is_dir(&args.config_path) {
-        util::crit_message("currently unsupported");
-        return false;
-    } else {
-        if push_file(bin, db, args.config_path, args.subset, margs.debug).is_err() {
             return false;
         }
     }
 
-    return true;
+    if debug {
+        util::info_message("Copying config to blobs");
+    }
+
+    return match config.bin.push_file(config) {
+        Ok(_) => {
+            if debug {
+                util::good_message("Sucessfully copied config");
+            }
+            true
+        }
+        Err(e) => {
+            util::crit_message(&e.to_string());
+            return false;
+        }
+    };
+}
+
+fn push_dir(config: &mut Config, debug: bool, force: bool) -> bool {
+    if debug {
+        util::info_message(&format!("Attempting to track {}", config.blob_name))
+    }
+
+    let res = match config.get_update_type() {
+        UpdateType::NewConfig => config.bin.add_config(&config),
+        UpdateType::UpdateSubset => config.bin.update_subset(&config),
+        UpdateType::NoUpdate => Ok(util::good_message("No Update Needed")),
+        UpdateType::UpdateContent | UpdateType::UpdateAll => {
+            config.bin.update_subset(&config).unwrap();
+            if !force {
+                util::crit_message("Dir config exist; use -f to overwrite");
+                std::process::exit(1);
+            } else {
+                util::info_message("Updating all files in config dir");
+                config.version += 1;
+                config.bin.update_content(config)
+            }
+        }
+    };
+
+    match res {
+        Ok(_) => {}
+        Err(e) => {
+            util::crit_message(&e.to_string());
+            return false;
+        }
+    }
+
+    if debug {
+        util::info_message("Copying config dir to blobs");
+    }
+
+    return match config.bin.push_dir(config) {
+        Ok(_) => {
+            if debug {
+                util::good_message("Sucessfully copied config");
+            }
+            true
+        }
+        Err(e) => {
+            util::crit_message(&e.to_string());
+            return false;
+        }
+    };
+}
+
+pub fn push_core(margs: Args, args: PushArgs) -> bool {
+    let bin = meld::Bin::new(margs.bin);
+
+    let mut config = match meld::Config::new(args.config_path, args.subset, bin, false) {
+        Err(e) => {
+            util::crit_message(&format!("{}", e));
+            return false;
+        }
+        Ok(c) => c,
+    };
+
+    if margs.debug {
+        util::info_message(&format!("Pushing config {}", config.real_path));
+    }
+
+    return if !config.is_dir {
+        push_file(&mut config, margs.debug)
+    } else {
+        push_dir(&mut config, margs.debug, args.force)
+    };
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::{fs, io::Write};
 
     use serial_test::serial;
 
@@ -216,6 +190,7 @@ mod tests {
             command: Command::Push(PushArgs {
                 config_path: TEST_CONF.to_string(),
                 subset: "".to_string(),
+                force: false,
             }),
         };
 
@@ -244,6 +219,7 @@ mod tests {
             command: Command::Push(PushArgs {
                 config_path: TEST_CONF.to_string(),
                 subset: "".to_string(),
+                force: false,
             }),
         };
 
@@ -267,6 +243,7 @@ mod tests {
             command: Command::Push(PushArgs {
                 config_path: TEST_CONF.to_string(),
                 subset: "".to_string(),
+                force: false,
             }),
         };
 
