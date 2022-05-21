@@ -10,6 +10,9 @@ pub struct PushArgs {
     #[structopt(short = "s", long = "subset", default_value = "", help = "subset tag")]
     pub(crate) subset: String,
 
+    #[structopt(short = "t", long = "tag", default_value = "", help = "config tag")]
+    pub(crate) tag: String,
+
     #[structopt(
         short = "f",
         long = "force",
@@ -110,7 +113,7 @@ fn push_dir(config: &mut Config, debug: bool, force: bool) -> bool {
 pub fn push_core(margs: Args, args: PushArgs) -> bool {
     let bin = meld::Bin::new(margs.bin);
 
-    let mut config = match meld::Config::new(args.config_path, args.subset, bin, false) {
+    let mut config = match meld::Config::new(args.config_path, args.subset, args.tag, bin, false) {
         Err(e) => {
             util::crit_message(&format!("{}", e));
             return false;
