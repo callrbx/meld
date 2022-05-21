@@ -2,15 +2,17 @@ use crate::util::{self};
 use rusqlite::{params, Connection};
 use sha2::{Digest, Sha512};
 use snafu::{self, Snafu};
-use std::{collections::HashMap, fmt::format, fs};
+use std::{collections::HashMap, fs};
 
-const INIT_TRACKED: &str = "CREATE TABLE tracked (id TEXT, subset TEXT)";
+const INIT_TRACKED: &str = "CREATE TABLE tracked (id TEXT, path TEXT, subset TEXT)";
 const INIT_VERSIONS: &str = "CREATE TABLE versions (id TEXT, ver INTEGER, sphash TEXT)";
 
 #[derive(Debug, Snafu)]
 pub enum MeldError {
     #[snafu(display("Bin Already Exists"))]
     BinAlreadyExists,
+    #[snafu(display("Dir Already Exists"))]
+    DirAlreadyExists,
     #[snafu(display("Dir Creation Failed '{error_msg}'"))]
     DirCreateFailed { error_msg: String },
     #[snafu(display("File Creation Failed '{error_msg}'"))]
@@ -31,6 +33,8 @@ pub enum MeldError {
     MeldDirCopyFailed { error_msg: String },
     #[snafu(display("Config dir already exists"))]
     ConfigDirExists,
+    #[snafu(display("Meld Blob Not Found"))]
+    BlobNotFound,
 }
 
 pub enum UpdateType {
@@ -73,7 +77,7 @@ impl Bin {
         return last_ver;
     }
 
-    pub fn config_exists(&self, config: &Config) -> bool {
+    pub fn config_exists(&self, blob_name: &str) -> bool {
         let con = match Connection::open(&self.db) {
             Ok(con) => con,
             Err(e) => {
@@ -84,13 +88,32 @@ impl Bin {
 
         let mut stmt = con.prepare("SELECT * FROM tracked WHERE id = ?").unwrap();
 
-        return match stmt.exists(params![config.blob_name]) {
+        return match stmt.exists(params![blob_name]) {
             Ok(b) => b,
             Err(e) => {
                 util::error_message(&e.to_string());
                 return false;
             }
         };
+    }
+
+    pub fn config_is_dir(&self, config: &Config) -> bool {
+        let con = match Connection::open(&self.db) {
+            Ok(con) => con,
+            Err(e) => {
+                util::crit_message(&e.to_string());
+                std::process::exit(1);
+            }
+        };
+
+        let mut stmt = con
+            .prepare("SELECT id FROM versions WHERE sphash = ? ORDER BY ver DESC")
+            .unwrap();
+        let mut rows = stmt.query(params![config.blob_name]).unwrap();
+
+        let id: String = rows.next().unwrap().unwrap().get(0).unwrap();
+
+        return id == "DIR";
     }
 
     pub fn is_update_content_needed(&self, config: &Config) -> bool {
@@ -215,8 +238,8 @@ impl Bin {
         };
 
         match con.execute(
-            "INSERT INTO tracked (id, subset) VALUES (?1, ?2)",
-            params![config.blob_name, config.subset],
+            "INSERT INTO tracked (id, path, subset) VALUES (?1, ?2, ?3)",
+            params![config.blob_name, config.real_path, config.subset],
         ) {
             Ok(_) => {}
             Err(e) => {
@@ -434,6 +457,101 @@ impl Bin {
             }
         };
     }
+
+    pub fn pull_file(&self, config: &Config, version: Option<String>) -> Result<(), MeldError> {
+        // Match last tracked version or user specified
+        let vers = match version {
+            Some(r) => r,
+            None => config.bin.get_cur_version(&config).to_string(),
+        };
+
+        // Build Blob path w/ version
+        let blob_ver_path = match config.get_blob_version_path(vers) {
+            Ok(path) => path,
+            Err(e) => {
+                util::crit_message(&e.to_string());
+                return BlobNotFoundSnafu.fail();
+            }
+        };
+
+        match fs::copy(blob_ver_path, &config.real_path) {
+            Ok(_) => true,
+            Err(e) => {
+                util::crit_message(&format!("Failed to copy: {}", e));
+                return MeldFileCopyFailedSnafu {
+                    error_msg: e.to_string(),
+                }
+                .fail();
+            }
+        };
+
+        return Ok(());
+    }
+
+    pub fn pull_dir(
+        &self,
+        config: &Config,
+        version: Option<String>,
+        force: bool,
+    ) -> Result<(), MeldError> {
+        // Match last tracked version or user specified
+        let vers = match version {
+            Some(r) => r,
+            None => config.bin.get_cur_version(&config).to_string(),
+        };
+
+        // Build Blob path w/ version
+        let blob_ver_path = match config.get_blob_version_path(vers) {
+            Ok(path) => path,
+            Err(e) => {
+                util::crit_message(&e.to_string());
+                return BlobNotFoundSnafu.fail();
+            }
+        };
+
+        let path_exists = util::path_exists(&config.real_path);
+
+        // check if path exists; if yes and not force, fail
+        if path_exists && !force {
+            util::crit_message("Directory already exists and force not set");
+            return DirAlreadyExistsSnafu.fail();
+        } else if path_exists && force {
+            util::info_message("Forcing updating of dir; removing existing dir");
+            match fs::remove_dir(&config.real_path) {
+                Err(e) => {
+                    util::crit_message("Failed to remove existing dir");
+                    return MeldDirCopyFailedSnafu {
+                        error_msg: e.to_string(),
+                    }
+                    .fail();
+                }
+                _ => {}
+            }
+        } else if !path_exists {
+            match fs::create_dir(&config.real_path) {
+                Err(e) => {
+                    util::crit_message("Failed to create dir");
+                    return MeldDirCopyFailedSnafu {
+                        error_msg: e.to_string(),
+                    }
+                    .fail();
+                }
+                _ => {}
+            }
+        }
+
+        let opt = fs_extra::dir::CopyOptions::new();
+        return match fs_extra::dir::copy(blob_ver_path, &config.real_path, &opt) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                util::crit_message(&format!("Failed to copy: {}", e));
+                return MeldDirCopyFailedSnafu {
+                    error_msg: e.to_string(),
+                }
+                .fail();
+            }
+        };
+    }
 }
 
 pub struct Config {
@@ -451,16 +569,18 @@ pub struct Config {
 impl Config {
     // TODO: actually do file mapping based on config files
     fn translate_stored_path(path: &str) -> (String, String) {
-        let rp = match fs::canonicalize(path) {
-            Err(e) => {
-                util::crit_message(&format!("Failed to canonicalize path: {}", e));
-                std::process::exit(1);
-            }
-            Ok(rp) => String::from(rp.to_str().unwrap()),
-        };
-        let real_path = String::from(rp);
+        let real_path = path_clean::clean(path);
         let store_path = real_path.clone();
         return (real_path, store_path);
+    }
+
+    pub fn get_blob_version_path(&self, version: String) -> Result<String, MeldError> {
+        let blob_ver_path = format!("{}/blobs/{}/{}", self.bin.path, self.blob_name, version);
+        if !util::path_exists(&blob_ver_path) {
+            return BlobNotFoundSnafu.fail();
+        }
+
+        return Ok(blob_ver_path);
     }
 
     // Hash the Stored Path for use as an ID in tracked
@@ -484,12 +604,12 @@ impl Config {
     // Return a list of updates we need to make for the config
     pub fn get_update_type(&mut self) -> UpdateType {
         // if the config does not exist, 0 will be returned
-        let config_exists = self.bin.config_exists(self);
+        let config_exists = self.bin.config_exists(&self.blob_name);
         let update_subset = config_exists && self.bin.is_update_subset_needed(self);
         let update_content = config_exists && self.bin.is_update_content_needed(self);
 
         if config_exists {
-            self.version = self.bin.get_cur_version(self);
+            self.version = self.bin.get_cur_version(self) + 1;
         } else {
             self.version = 1;
         }
@@ -518,31 +638,56 @@ impl Config {
         }
     }
 
-    pub fn new(path: String, subset: String, bin: Bin) -> Result<Self, MeldError> {
+    pub fn new(path: String, subset: String, bin: Bin, is_pull: bool) -> Result<Self, MeldError> {
         if !bin.is_valid() {
             return InvalidBinSnafu.fail();
         }
 
-        if !util::path_exists(&path) {
-            return InvalidConfigSnafu.fail();
+        // Get real path and store path
+        let (real_path, store_path) = Config::translate_stored_path(&path);
+        let blob_name = Config::hash_path(&store_path);
+
+        println!("STorePath: {}", store_path);
+
+        // verify config exists; either in file in push or db if pull
+        if !is_pull {
+            if !util::path_exists(&real_path) {
+                return InvalidConfigSnafu.fail();
+            }
+        } else {
+            if !bin.config_exists(&blob_name) {
+                return InvalidConfigSnafu.fail();
+            }
         }
 
-        let is_dir = util::is_dir(&path);
-
-        let (real_path, store_path) = Config::translate_stored_path(&path);
-
+        // Maybe used later
         let versions: HashMap<i32, String> = HashMap::new();
 
-        return Ok(Config {
-            is_dir: is_dir,
+        let mut temp = Config {
+            is_dir: false,
             subset: subset,
             real_path: real_path.to_string(),
             store_path: store_path.to_string(),
             version: 0,
             versions: versions,
-            blob_name: Config::hash_path(&store_path),
-            content_hash: Config::hash_contents(&real_path),
+            blob_name: blob_name,
+            content_hash: "".to_string(),
             bin: bin,
-        });
+        };
+
+        // Determine if config is a file or dir
+        if !is_pull {
+            temp.is_dir = util::is_dir(&temp.real_path);
+            temp.content_hash = Config::hash_contents(&temp.real_path);
+        } else {
+            temp.is_dir = temp.bin.config_is_dir(&temp);
+            if util::path_exists(&temp.real_path) {
+                temp.content_hash = Config::hash_contents(&temp.real_path);
+            } else {
+                temp.content_hash = "".to_string();
+            }
+        }
+
+        return Ok(temp);
     }
 }

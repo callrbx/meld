@@ -1,6 +1,5 @@
 use crate::meld;
 use crate::meld::Config;
-use crate::meld::MeldError;
 use crate::meld::UpdateType;
 use crate::util;
 use crate::Args;
@@ -110,9 +109,9 @@ fn push_dir(config: &mut Config, debug: bool, force: bool) -> bool {
 }
 
 pub fn push_core(margs: Args, args: PushArgs) -> bool {
-    let db = meld::Bin::new(margs.bin);
+    let bin = meld::Bin::new(margs.bin);
 
-    let mut config = match meld::Config::new(args.config_path, args.subset, db) {
+    let mut config = match meld::Config::new(args.config_path, args.subset, bin, false) {
         Err(e) => {
             util::crit_message(&format!("{}", e));
             return false;
