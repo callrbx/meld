@@ -4,15 +4,17 @@ stages:
   - test
   - publish
 
+before:
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+
 .container:
   image: registry.parker.systems/meld/meld-rust:latest
   stage: build
   interruptible: true
   allow_failure: false
   timeout: 10m
-
-before_script:
-- docker login -u gitlab-ci-token -p $CI_JOB_TOKEN https://registry.parker.systems
 
 lint-rs:
   extends:
