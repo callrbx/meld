@@ -11,6 +11,9 @@ stages:
   allow_failure: false
   timeout: 10m
 
+before_script:
+- docker login -u gitlab-ci-token -p $CI_JOB_TOKEN https://registry.parker.systems
+
 lint-rs:
   extends:
     - .container
