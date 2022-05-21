@@ -8,7 +8,7 @@ cargo test --release
 RS_RES=$?
 
 if [ 0 -ne $RS_RES ]; then
-    echo "[-] Rust Tests Failed" && return 1
+    echo "[-] Rust Tests Failed" && exit 1
 else
     echo "[+] Rust Tests Passed"
 fi
@@ -20,7 +20,7 @@ CLIENTBIN=$(pwd)/../target/release/meld ./run_tests.sh
 SUITE_RES=$?
 
 if [ 0 -ne $SUITE_RES ]; then
-    echo "[-] Suite Tests Failed" && return 1
+    echo "[-] Suite Tests Failed" && exit 1
 else
     echo "[+] Suite Tests Passed"
 fi

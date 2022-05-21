@@ -76,7 +76,6 @@ fn push_dir(config: &mut Config, debug: bool, force: bool) -> bool {
                 std::process::exit(1);
             } else {
                 util::info_message("Updating all files in config dir");
-                config.version += 1;
                 config.bin.update_content(config)
             }
         }

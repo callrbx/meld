@@ -446,7 +446,8 @@ impl Bin {
             };
         }
 
-        let opt = fs_extra::dir::CopyOptions::new();
+        let mut opt = fs_extra::dir::CopyOptions::new();
+        opt.content_only = true;
         return match fs_extra::dir::copy(&config.real_path, &dest_path, &opt) {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -540,7 +541,8 @@ impl Bin {
             }
         }
 
-        let opt = fs_extra::dir::CopyOptions::new();
+        let mut opt = fs_extra::dir::CopyOptions::new();
+        opt.copy_inside = true;
         return match fs_extra::dir::copy(blob_ver_path, &config.real_path, &opt) {
             Ok(_) => Ok(()),
             Err(e) => {
