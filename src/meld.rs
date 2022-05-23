@@ -4,8 +4,8 @@ use sha2::{Digest, Sha512};
 use snafu::{self, Snafu};
 use std::{collections::HashMap, fs};
 
-const INIT_TRACKED: &str = "CREATE TABLE tracked (id TEXT, path TEXT, tag TEXT, subset TEXT)";
-const INIT_VERSIONS: &str = "CREATE TABLE versions (id TEXT, ver INTEGER, sphash TEXT)";
+const INIT_TRACKED: &str = "CREATE TABLE tracked (id TEXT, path TEXT, subset TEXT)";
+const INIT_VERSIONS: &str = "CREATE TABLE versions (id TEXT, ver INTEGER, tag TEXT, sphash TEXT)";
 
 #[derive(Debug, Snafu)]
 pub enum MeldError {
@@ -150,8 +150,13 @@ impl Bin {
         };
 
         match con.execute(
-            "INSERT INTO versions (id, ver, sphash) VALUES (?1, ?2, ?3)",
-            params![config.content_hash, config.version, config.blob_name],
+            "INSERT INTO versions (id, ver, tag, sphash) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                config.content_hash,
+                config.version,
+                config.tag,
+                config.blob_name
+            ],
         ) {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -238,8 +243,8 @@ impl Bin {
         };
 
         match con.execute(
-            "INSERT INTO tracked (id, path, tag, subset) VALUES (?1, ?2,?3, ?4)",
-            params![config.blob_name, config.real_path, config.tag, config.subset],
+            "INSERT INTO tracked (id, path, subset) VALUES (?1, ?2, ?3)",
+            params![config.blob_name, config.real_path, config.subset],
         ) {
             Ok(_) => {}
             Err(e) => {
@@ -251,8 +256,8 @@ impl Bin {
         }
 
         match con.execute(
-            "INSERT INTO versions (id, ver, sphash) VALUES (?1, ?2, ?3)",
-            params![config.content_hash, 1, config.blob_name],
+            "INSERT INTO versions (id, ver, tag, sphash) VALUES (?1, ?2, ?3, ?4)",
+            params![config.content_hash, 1, config.tag, config.blob_name],
         ) {
             Ok(_) => {}
             Err(e) => {
@@ -642,7 +647,13 @@ impl Config {
         }
     }
 
-    pub fn new(path: String, subset: String, tag: String, bin: Bin, is_pull: bool) -> Result<Self, MeldError> {
+    pub fn new(
+        path: String,
+        subset: String,
+        tag: String,
+        bin: Bin,
+        is_pull: bool,
+    ) -> Result<Self, MeldError> {
         if !bin.is_valid() {
             return InvalidBinSnafu.fail();
         }
