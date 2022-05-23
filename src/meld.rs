@@ -5,7 +5,7 @@ use snafu::{self, Snafu};
 use std::{collections::HashMap, fs};
 
 const INIT_TRACKED: &str = "CREATE TABLE tracked (id TEXT, path TEXT, subset TEXT)";
-const INIT_VERSIONS: &str = "CREATE TABLE versions (id TEXT, ver INTEGER, sphash TEXT)";
+const INIT_VERSIONS: &str = "CREATE TABLE versions (id TEXT, ver INTEGER, tag TEXT, sphash TEXT)";
 
 #[derive(Debug, Snafu)]
 pub enum MeldError {
@@ -150,8 +150,13 @@ impl Bin {
         };
 
         match con.execute(
-            "INSERT INTO versions (id, ver, sphash) VALUES (?1, ?2, ?3)",
-            params![config.content_hash, config.version, config.blob_name],
+            "INSERT INTO versions (id, ver, tag, sphash) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                config.content_hash,
+                config.version,
+                config.tag,
+                config.blob_name
+            ],
         ) {
             Ok(_) => Ok(()),
             Err(e) => {
@@ -251,8 +256,8 @@ impl Bin {
         }
 
         match con.execute(
-            "INSERT INTO versions (id, ver, sphash) VALUES (?1, ?2, ?3)",
-            params![config.content_hash, 1, config.blob_name],
+            "INSERT INTO versions (id, ver, tag, sphash) VALUES (?1, ?2, ?3, ?4)",
+            params![config.content_hash, 1, config.tag, config.blob_name],
         ) {
             Ok(_) => {}
             Err(e) => {
@@ -564,6 +569,7 @@ pub struct Config {
     pub version: i32,
     pub versions: HashMap<i32, String>,
     pub subset: String,
+    pub tag: String,
     pub blob_name: String,
     pub content_hash: String,
     pub bin: Bin,
@@ -641,7 +647,13 @@ impl Config {
         }
     }
 
-    pub fn new(path: String, subset: String, bin: Bin, is_pull: bool) -> Result<Self, MeldError> {
+    pub fn new(
+        path: String,
+        subset: String,
+        tag: String,
+        bin: Bin,
+        is_pull: bool,
+    ) -> Result<Self, MeldError> {
         if !bin.is_valid() {
             return InvalidBinSnafu.fail();
         }
@@ -666,6 +678,7 @@ impl Config {
 
         let mut temp = Config {
             is_dir: false,
+            tag: tag,
             subset: subset,
             real_path: real_path.to_string(),
             store_path: store_path.to_string(),
