@@ -7,6 +7,10 @@ use crate::Error;
 
 use std::{fs::DirBuilder, path::PathBuf};
 
+const MAP_DIR: &str = "maps";
+const BLOBS_DIR: &str = "blobs";
+const MELD_DB: &str = "meld.db";
+
 impl Bin {
     fn is_valid(&self) -> bool {
         return self.path.exists()
@@ -20,10 +24,10 @@ impl Bin {
         info!("Opening bin at {}", path);
         let bin = Bin {
             path: PathBuf::from(&path),
-            maps: PathBuf::from(format!("{}/maps", &path)),
-            blobs: PathBuf::from(format!("{}/blobs", &path)),
+            maps: PathBuf::from(format!("{}/{}", &path, MAP_DIR)),
+            blobs: PathBuf::from(format!("{}/{}", &path, BLOBS_DIR)),
             db: Database {
-                path: PathBuf::from(format!("{}/db.sqlite", &path)),
+                path: PathBuf::from(format!("{}/{}", &path, MELD_DB)),
             },
         };
 
@@ -59,10 +63,10 @@ impl Bin {
         info!("Creating bin at {}", path);
         let bin = Bin {
             path: PathBuf::from(&path),
-            maps: PathBuf::from(format!("{}/maps", &path)),
-            blobs: PathBuf::from(format!("{}/blobs", &path)),
+            maps: PathBuf::from(format!("{}/{}", &path, MAP_DIR)),
+            blobs: PathBuf::from(format!("{}/{}", &path, BLOBS_DIR)),
             db: Database {
-                path: PathBuf::from(format!("{}/db.sqlite", &path)),
+                path: PathBuf::from(format!("{}/{}", &path, MELD_DB)),
             },
         };
 
@@ -70,6 +74,7 @@ impl Bin {
         let mut dirb = DirBuilder::new();
         dirb.recursive(parents);
         if bin.path.exists() {
+            warn!("Bin folder already exists");
             if !force {
                 return Err(Error::BinAlreadyExists { bin: path });
             } else {
