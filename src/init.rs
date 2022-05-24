@@ -15,13 +15,13 @@ pub struct InitArgs {
     #[structopt(
         short = "f",
         long = "force",
-        help = "force delete and init of an existing folder"
+        help = "force delete + init of an existing folder"
     )]
     pub(crate) force: bool,
 }
 
 /// Main handler for Meld Bin Init
-pub fn init_core(main_args: Args, args: InitArgs) -> Result<(), libmeld::Error> {
+pub fn handler(main_args: Args, args: InitArgs) -> Result<(), libmeld::Error> {
     Bin::new(main_args.bin, args.force, args.make_parents)?;
 
     return Ok(());

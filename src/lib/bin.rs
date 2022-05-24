@@ -16,7 +16,8 @@ impl Bin {
         return self.path.exists()
             && self.blobs.exists()
             && self.maps.exists()
-            && self.db.path.exists();
+            && self.db.path.exists()
+            && self.db.is_valid();
     }
 
     /// Parse a Meld Bin from a Path
@@ -36,7 +37,7 @@ impl Bin {
             Ok(bin)
         } else {
             Err(Error::InitFailed {
-                msg: "Failed to Open Valid Bin".to_string(),
+                msg: "Specified Bin is not valid".to_string(),
             })
         };
     }

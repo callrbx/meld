@@ -20,6 +20,9 @@ structopt = "*"
 snafu = "*"
 env_logger = "*"
 log = "*"
+path-clean = "*"
+sha2 = "*"
+walkdir = "*"
 
 # Enable bundle of sqlite library
 [dependencies.rusqlite]
