@@ -7,13 +7,23 @@ authors = ["drew <drew@parker.systems>"]
 readme = "README.md"
 license = "MIT"
 
+[lib]
+name = "libmeld"
+path = "src/lib/lib.rs"
+
+[[bin]]
+name = "meld"
+path = "src/main.rs"
+
 [dependencies]
-structopt = "^0.3.26"
-rusqlite = "0.27.0"
-serial_test = "^0.6.0"
-sha2 = "^0.10.2"
-hex = "0.4.3"
-path_abs = "0.5.1"
-fs_extra = "1.2.0"
-snafu = "0.7.1"
-path-clean = "0.1.0"
+structopt = "*"
+snafu = "*"
+env_logger = "*"
+log = "*"
+
+# Enable bundle of sqlite library
+[dependencies.rusqlite]
+version = "0.27.0"
+features = ["bundled"]
+
+
