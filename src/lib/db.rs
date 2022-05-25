@@ -3,12 +3,15 @@ use std::collections::HashMap;
 use crate::Config;
 use crate::Database;
 use crate::Error;
+use crate::Map;
 use crate::Version;
 use log::info;
 use rusqlite::{params, Connection};
 
-const INIT_TRACKED: &str = "CREATE TABLE configs (id TEXT, subset TEXT, family TEXT, map_path TEXT, is_tlc INTEGER, parent TEXT)";
+const INIT_TRACKED: &str =
+    "CREATE TABLE configs (id TEXT, subset TEXT, family TEXT, map_path TEXT)";
 const INIT_VERSIONS: &str = "CREATE TABLE versions (id TEXT, ver INTEGER, tag TEXT, owner TEXT)";
+const INIT_MAPPED: &str = "CREATE TABLE maps (id TEXT, ver INTEGER, nhash TEXT)";
 
 impl Database {
     // TODO: Impliment me
@@ -30,6 +33,11 @@ impl Database {
         };
 
         match con.execute(INIT_VERSIONS, params![]) {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        match con.execute(INIT_MAPPED, params![]) {
             Ok(c) => c,
             Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
         };
@@ -116,6 +124,43 @@ impl Database {
         };
     }
 
+    // get the current map (if exists) for a map blob
+    pub fn get_current_map(&self, blob: &String) -> Result<Option<Map>, Error> {
+        info!("Finding the current map with id {}", &blob);
+
+        let con = match Connection::open(&self.path) {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        // highest version number with matching owner
+        let mut stmt = match con.prepare("SELECT * FROM maps where id = ? ORDER BY ver DESC") {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        // convert the rows into a MappedRows iterator
+        let mut maps_iter = match stmt.query_map(params![blob], |row| {
+            Ok(Map {
+                blob: row.get(0)?,
+                ver: row.get(1)?,
+                hash: row.get(2)?,
+                configs: Vec::new(),
+            })
+        }) {
+            Ok(i) => i,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        return match maps_iter.next() {
+            Some(v) => match v {
+                Ok(v) => Ok(Some(v)),
+                Err(e) => Err(Error::SQLError { msg: e.to_string() }),
+            },
+            None => Ok(None),
+        };
+    }
+
     // Add a new version to the versions table
     pub fn add_config(&self, c: &Config) -> Result<(), Error> {
         info!("Adding config {}", c.get_blob());
@@ -125,13 +170,10 @@ impl Database {
             Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
         };
 
-        // determine if config is a TLC
-        let is_tlc = if c.is_tcl { 1 } else { 0 };
-
         // Insert config into DB configs table
         match con.execute(
-            "INSERT INTO configs (id, subset, family, map_path, is_tlc, parent) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![c.blob, c.subset, c.family, c.map_path, is_tlc, c.parent],
+            "INSERT INTO configs (id, subset, family, map_path) VALUES (?1, ?2, ?3, ?4)",
+            params![c.blob, c.subset, c.family, c.map_path,],
         ) {
             Ok(c) => c,
             Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
@@ -153,6 +195,27 @@ impl Database {
         match con.execute(
             "INSERT INTO versions (id, ver, tag, owner) VALUES (?1, ?2, ?3, ?4)",
             params![v.data_hash, v.ver, v.tag, v.owner],
+        ) {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        return Ok(());
+    }
+
+    // Add a new map to the maps table
+    pub fn add_map(&self, m: &Map) -> Result<(), Error> {
+        info!("Adding map {}", m.get_blob());
+
+        let con = match Connection::open(&self.path) {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        // Insert config into DB configs table
+        match con.execute(
+            "INSERT INTO maps (id, ver, nhash) VALUES (?1, ?2, ?3)",
+            params![m.blob, m.ver, m.hash],
         ) {
             Ok(c) => c,
             Err(e) => return Err(Error::SQLError { msg: e.to_string() }),

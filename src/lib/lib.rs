@@ -1,10 +1,12 @@
-use log::error;
+use log::{error, info, warn};
+use sha2::{Digest, Sha512};
 use snafu::{self, Snafu};
 use std::{collections::HashMap, fs, path::PathBuf};
 
 mod bin;
 mod config;
 mod db;
+mod map;
 pub mod mapper;
 mod version;
 
@@ -17,6 +19,9 @@ pub enum Error {
     ParentsDontExist,
     #[snafu(display("Init Failed: {msg}"))]
     InitFailed { msg: String },
+    // Bin Errors
+    #[snafu(display("Map Update Not Needed"))]
+    UpdateNotNeeded,
     //SQL Errors
     #[snafu(display("SQL Failed: {msg}"))]
     SQLError { msg: String },
@@ -43,8 +48,6 @@ pub struct Config {
     family: String,
     map_path: String,
     tag: String,
-    is_tcl: bool,
-    parent: String,
     pub versions: HashMap<String, Version>,
 }
 
@@ -55,6 +58,13 @@ pub struct Version {
     pub owner: String,
 }
 
+pub struct Map {
+    pub blob: String,
+    pub ver: u32,
+    pub hash: String,
+    pub configs: Vec<Config>,
+}
+
 pub fn is_dir(path: &str) -> Result<bool, Error> {
     match fs::metadata(path) {
         Err(e) => {
@@ -63,4 +73,24 @@ pub fn is_dir(path: &str) -> Result<bool, Error> {
         }
         Ok(md) => Ok(md.is_dir()),
     }
+}
+
+// SHA512 of mapped file name
+pub fn hash_path(path: &str) -> String {
+    info!("Hashing mapped name: {}", path);
+    let mut hasher = Sha512::new();
+    hasher.update(path.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+// SHA512 hash of file contents
+pub fn hash_contents(path: &str) -> Result<String, Error> {
+    if is_dir(path)? {
+        warn!("not hashing {}. dir", path);
+        return Ok(String::from("DIR"));
+    }
+    let mut file = fs::File::open(path).unwrap();
+    let mut hasher = Sha512::new();
+    std::io::copy(&mut file, &mut hasher).unwrap();
+    Ok(format!("{:x}", hasher.finalize()))
 }

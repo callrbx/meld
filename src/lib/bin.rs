@@ -12,6 +12,25 @@ const BLOBS_DIR: &str = "blobs";
 const MELD_DB: &str = "meld.db";
 
 impl Bin {
+    // Getters
+    pub fn get_maps_str(&self) -> Result<String, Error> {
+        match self.maps.to_str() {
+            Some(s) => Ok(s.to_string()),
+            None => Err(Error::IOError {
+                msg: "Failed to get maps".to_string(),
+            }),
+        }
+    }
+
+    pub fn get_blobs_str(&self) -> Result<String, Error> {
+        match self.blobs.to_str() {
+            Some(s) => Ok(s.to_string()),
+            None => Err(Error::IOError {
+                msg: "Failed to get maps".to_string(),
+            }),
+        }
+    }
+
     fn is_valid(&self) -> bool {
         return self.path.exists()
             && self.blobs.exists()
@@ -37,7 +56,7 @@ impl Bin {
             Ok(bin)
         } else {
             Err(Error::InitFailed {
-                msg: "Specified Bin is not valid".to_string(),
+                msg: "Selected bin is invalid".to_string(),
             })
         };
     }
