@@ -11,7 +11,7 @@ use rusqlite::{params, Connection};
 const INIT_TRACKED: &str =
     "CREATE TABLE configs (id TEXT, subset TEXT, family TEXT, map_path TEXT)";
 const INIT_VERSIONS: &str = "CREATE TABLE versions (id TEXT, ver INTEGER, tag TEXT, owner TEXT)";
-const INIT_MAPPED: &str = "CREATE TABLE maps (id TEXT, ver INTEGER, nhash TEXT)";
+const INIT_MAPPED: &str = "CREATE TABLE maps (id TEXT, ver INTEGER, nhash TEXT, tag TEXT)";
 
 impl Database {
     // TODO: Impliment me
@@ -145,6 +145,7 @@ impl Database {
                 blob: row.get(0)?,
                 ver: row.get(1)?,
                 hash: row.get(2)?,
+                tag: row.get(3)?,
                 configs: Vec::new(),
             })
         }) {
@@ -214,8 +215,8 @@ impl Database {
 
         // Insert config into DB configs table
         match con.execute(
-            "INSERT INTO maps (id, ver, nhash) VALUES (?1, ?2, ?3)",
-            params![m.blob, m.ver, m.hash],
+            "INSERT INTO maps (id, ver, nhash, tag) VALUES (?1, ?2, ?3, ?4)",
+            params![m.blob, m.ver, m.hash, m.tag],
         ) {
             Ok(c) => c,
             Err(e) => return Err(Error::SQLError { msg: e.to_string() }),

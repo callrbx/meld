@@ -48,6 +48,7 @@ pub struct Config {
     family: String,
     map_path: String,
     tag: String,
+    hash: String,
     pub versions: HashMap<String, Version>,
 }
 
@@ -62,6 +63,7 @@ pub struct Map {
     pub blob: String,
     pub ver: u32,
     pub hash: String,
+    pub tag: String,
     pub configs: Vec<Config>,
 }
 

@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::Args;
-use libmeld::{hash_contents, is_dir, mapper, Bin, Config, Error, Map, Version};
+use libmeld::{is_dir, mapper, Bin, Config, Error, Map, Version};
 use log::{debug, info};
 use structopt::StructOpt;
 
@@ -68,7 +68,7 @@ fn push_config(bin: &Bin, config: &Config) -> Result<u32, libmeld::Error> {
     if cur_version.is_none() {
         info!("Adding new config to bin");
         let version = Version {
-            data_hash: hash_contents(config.get_real_path())?,
+            data_hash: config.get_hash().to_string(),
             ver: 1,
             tag: config.get_tag().to_string(),
             owner: config.get_blob().to_string(),
@@ -100,14 +100,14 @@ fn push_config(bin: &Bin, config: &Config) -> Result<u32, libmeld::Error> {
     let cur_version = cur_version.unwrap();
 
     info!("Config exists in bin; determining needed updates");
-    let new_hash = hash_contents(config.get_real_path())?;
+    let config_hash = config.get_hash().to_string();
     let new_ver = cur_version.ver + 1;
 
     // do proper update action; return the current version num in db
-    let db_ver = if cur_version.data_hash != new_hash {
+    let db_ver = if cur_version.data_hash != config_hash {
         info!("Content differs; adding new version");
         let new_ver = Version {
-            data_hash: new_hash,
+            data_hash: config_hash,
             ver: new_ver,
             tag: config.get_tag().to_string(),
             owner: config.get_blob().to_string(),
@@ -118,17 +118,17 @@ fn push_config(bin: &Bin, config: &Config) -> Result<u32, libmeld::Error> {
             config.get_real_path(),
             config.get_blob(),
             &bin.get_blobs_str()?,
-            1,
+            new_ver.ver,
         )?;
 
         // add to db after good copy
         bin.db.add_version(&new_ver)?;
 
         new_ver.ver
-    } else if cur_version.tag != config.get_tag().to_string() {
-        info!("Tag differs; updating");
-        bin.db.update_version_tag(&cur_version, config.get_tag())?;
-        cur_version.ver
+    // } else if cur_version.data_hash == new_hash && cur_version.tag != config.get_tag().to_string() {
+    //     info!("Tag differs; updating");
+    //     bin.db.update_version_tag(&cur_version, config.get_tag())?;
+    //     cur_version.ver
     } else {
         info!("Config matches most recent version; no updates needed");
         cur_version.ver

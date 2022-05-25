@@ -1,6 +1,7 @@
 use log::info;
 use std::collections::HashMap;
 
+use crate::hash_contents;
 use crate::hash_path;
 use crate::Config;
 use crate::Error;
@@ -19,6 +20,10 @@ impl Config {
         &self.tag
     }
 
+    pub fn get_hash(&self) -> &String {
+        &self.hash
+    }
+
     /// Create a Config from a path and arguments
     pub fn from(
         real_path: String,
@@ -27,7 +32,7 @@ impl Config {
         family: String,
         tag: String,
     ) -> Result<Self, Error> {
-        info!("Using config at {}", real_path);
+        info!("Using config at {}", &real_path);
         info!("Config mapped to {}", map_path);
 
         let config = Config {
@@ -35,6 +40,7 @@ impl Config {
             subset,
             family,
             map_path,
+            hash: hash_contents(&real_path)?,
             real_path,
             tag,
             versions: HashMap::new(),

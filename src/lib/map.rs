@@ -19,14 +19,13 @@ impl Map {
         path: &str,
         subset: String,
         family: String,
-        tag: String,
+        tag: &String,
     ) -> Result<Vec<Config>, Error> {
         let mut configs: Vec<Config> = Vec::new();
 
         for entity in WalkDir::new(path) {
             match entity {
                 Ok(e) => {
-                    println!("{:?}", e.path());
                     let map_path = mapper::map_file(&e.path().to_str().unwrap().to_string())?;
                     configs.push(Config::from(
                         e.path().to_str().unwrap().to_string(),
@@ -47,7 +46,7 @@ impl Map {
     fn get_map_hash(configs: &Vec<Config>) -> String {
         let mut hasher = Sha512::new();
         for c in configs {
-            hasher.update(c.blob.as_bytes());
+            hasher.update(c.get_hash());
         }
         format!("{:x}", hasher.finalize())
     }
@@ -58,13 +57,14 @@ impl Map {
 
         // generate variables for the new map
         let map_blob = hash_path(&path);
-        let config_vec = Map::build_configs(&path, subset, family, tag)?;
+        let config_vec = Map::build_configs(&path, subset, family, &tag)?;
         let map_hash = Map::get_map_hash(&config_vec);
 
         return Ok(Map {
             blob: map_blob,
             ver: 0,
             hash: map_hash,
+            tag: tag,
             configs: config_vec,
         });
     }
