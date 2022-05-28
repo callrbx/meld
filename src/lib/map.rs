@@ -26,7 +26,8 @@ impl Map {
         for entity in WalkDir::new(path) {
             match entity {
                 Ok(e) => {
-                    let map_path = mapper::map_file(&e.path().to_str().unwrap().to_string())?;
+                    let map_path =
+                        mapper::real_path_to_map(&e.path().to_str().unwrap().to_string())?;
                     configs.push(Config::from(
                         e.path().to_str().unwrap().to_string(),
                         map_path,

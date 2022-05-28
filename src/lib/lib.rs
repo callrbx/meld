@@ -28,6 +28,12 @@ pub enum Error {
     // General Errors
     #[snafu(display("IO Error: {msg}"))]
     IOError { msg: String },
+    #[snafu(display("File not found: {msg}"))]
+    FileNotFound { msg: String },
+    #[snafu(display("Tag Not Found: {msg}"))]
+    TagNotFound { msg: String },
+    #[snafu(display("Something unexpected happened"))]
+    SomethingFailed,
 }
 
 pub struct Database {
@@ -75,6 +81,10 @@ pub fn is_dir(path: &str) -> Result<bool, Error> {
         }
         Ok(md) => Ok(md.is_dir()),
     }
+}
+
+pub fn exists(path: &String) -> bool {
+    return fs::metadata(path).is_ok();
 }
 
 // SHA512 of mapped file name

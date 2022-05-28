@@ -8,13 +8,13 @@ use crate::Version;
 use log::info;
 use rusqlite::{params, Connection};
 
-const INIT_TRACKED: &str =
+const INIT_CONFIGS: &str =
     "CREATE TABLE configs (id TEXT, subset TEXT, family TEXT, map_path TEXT)";
 const INIT_VERSIONS: &str = "CREATE TABLE versions (id TEXT, ver INTEGER, tag TEXT, owner TEXT)";
 const INIT_MAPPED: &str = "CREATE TABLE maps (id TEXT, ver INTEGER, nhash TEXT, tag TEXT)";
 
 impl Database {
-    // TODO: Impliment me
+    // TODO: Impliment me; logic for sql verification missing
     pub(crate) fn is_valid(&self) -> bool {
         true
     }
@@ -27,7 +27,7 @@ impl Database {
             Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
         };
 
-        match con.execute(INIT_TRACKED, params![]) {
+        match con.execute(INIT_CONFIGS, params![]) {
             Ok(c) => c,
             Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
         };
@@ -162,6 +162,37 @@ impl Database {
         };
     }
 
+    // get the current map (if exists) for a map blob
+    // Add a new version to the versions table
+    pub fn get_mapped_path(&self, config_blob: &String) -> Result<Option<String>, Error> {
+        info!("Checking DB for map_path {}", config_blob);
+
+        let con = match Connection::open(&self.path) {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        // highest version number with matching owner
+        let mut stmt = match con.prepare("SELECT map_path FROM configs WHERE id = ?") {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        // convert the rows into a MappedRows iterator
+        let mut blobs_iter = match stmt.query_map(params![config_blob], |row| Ok(row.get(0)?)) {
+            Ok(i) => i,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        return match blobs_iter.next() {
+            Some(v) => match v {
+                Ok(blob) => Ok(Some(blob)),
+                Err(e) => Err(Error::SQLError { msg: e.to_string() }),
+            },
+            None => Ok(None),
+        };
+    }
+
     // Add a new version to the versions table
     pub fn add_config(&self, c: &Config) -> Result<(), Error> {
         info!("Adding config {}", c.get_blob());
@@ -181,6 +212,36 @@ impl Database {
         };
 
         return Ok(());
+    }
+
+    // Add a new version to the versions table
+    pub fn config_exists(&self, config_map_path: &String) -> Result<Option<String>, Error> {
+        info!("Checking DB for config {}", config_map_path);
+
+        let con = match Connection::open(&self.path) {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        // highest version number with matching owner
+        let mut stmt = match con.prepare("SELECT id FROM configs WHERE map_path = ?") {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        // convert the rows into a MappedRows iterator
+        let mut blobs_iter = match stmt.query_map(params![config_map_path], |row| Ok(row.get(0)?)) {
+            Ok(i) => i,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        return match blobs_iter.next() {
+            Some(v) => match v {
+                Ok(blob) => Ok(Some(blob)),
+                Err(e) => Err(Error::SQLError { msg: e.to_string() }),
+            },
+            None => Ok(None),
+        };
     }
 
     // Add a new version to the versions table

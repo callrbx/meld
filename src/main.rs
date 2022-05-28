@@ -1,10 +1,12 @@
 #![crate_name = "meld"]
 use init::InitArgs;
 use log::{error, info};
+use pull::PullArgs;
 use push::PushArgs;
 use structopt::StructOpt;
 
 mod init;
+mod pull;
 mod push;
 
 /// Declare submodule argument types for matching
@@ -12,6 +14,7 @@ mod push;
 pub enum Command {
     Init(InitArgs),
     Push(PushArgs),
+    Pull(PullArgs),
 }
 
 #[derive(Debug, StructOpt, Clone)]
@@ -39,6 +42,7 @@ fn main() {
     let res = match args.command {
         Command::Init(mod_args) => init::handler(main_args, mod_args),
         Command::Push(mod_args) => push::handler(main_args, mod_args),
+        Command::Pull(mod_args) => pull::handler(main_args, mod_args),
     };
 
     match res {
@@ -52,4 +56,3 @@ fn main() {
         }
     };
 }
-// random comment

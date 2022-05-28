@@ -144,8 +144,8 @@ pub fn handler(main_args: Args, args: PushArgs) -> Result<(), libmeld::Error> {
 
     // handle single file config pushes
     if !is_dir(&args.config_path)? {
-        info!("Pushing single file");
-        let map_path = mapper::map_file(&args.config_path)?;
+        debug!("Pushing single file");
+        let map_path = mapper::real_path_to_map(&args.config_path)?;
         let config = Config::from(
             args.config_path,
             map_path,
@@ -155,7 +155,7 @@ pub fn handler(main_args: Args, args: PushArgs) -> Result<(), libmeld::Error> {
         )?;
         push_config(&bin, &config)?;
     } else {
-        info!("Pushing dir tree");
+        debug!("Pushing dir tree");
         // create map and add to db
         let mut map = Map::new(&args.config_path, args.subset, args.family, args.tag)?;
         info!("Map contains {} configs", map.configs.len());
