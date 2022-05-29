@@ -1,3 +1,7 @@
+![Gitlab pipeline status (self-hosted)](https://img.shields.io/gitlab/pipeline-status/meld/meld-rust?branch=main&gitlab_url=https%3A%2F%2Fgitlab.parker.systems)
+
+![GitLab Release (custom instance)](https://img.shields.io/gitlab/v/release/meld/meld-rust?gitlab_url=https%3A%2F%2Fgitlab.parker.systems&include_prereleases)
+
 ## Meld Docs
 
 The spec and design choices for Meld
