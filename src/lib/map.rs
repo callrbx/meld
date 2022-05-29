@@ -56,9 +56,11 @@ impl Map {
     pub fn new(path: &String, subset: String, family: String, tag: String) -> Result<Self, Error> {
         info!("Building map for {}", path);
 
+        let clean_path = path_clean::clean(path);
+
         // generate variables for the new map
-        let map_blob = hash_path(&path);
-        let config_vec = Map::build_configs(&path, subset, family, &tag)?;
+        let map_blob = hash_path(&clean_path);
+        let config_vec = Map::build_configs(&clean_path, subset, family, &tag)?;
         let map_hash = Map::get_map_hash(&config_vec);
 
         return Ok(Map {
