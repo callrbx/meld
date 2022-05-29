@@ -50,8 +50,8 @@ pub struct Bin {
 pub struct Config {
     blob: String,
     real_path: String,
-    subset: String,
-    family: String,
+    pub subset: String,
+    pub family: String,
     map_path: String,
     tag: String,
     hash: String,

@@ -96,6 +96,15 @@ fn push_config(bin: &Bin, config: &Config) -> Result<u32, libmeld::Error> {
         return Ok(1);
     }
 
+    // handle admin updates
+    if config.subset != "" {
+        bin.db.update_subset(config.get_blob(), &config.subset)?;
+    }
+
+    if config.family != "" {
+        bin.db.update_family(config.get_blob(), &config.family)?;
+    }
+
     // handle versions table updates
     let cur_version = cur_version.unwrap();
 
@@ -125,10 +134,13 @@ fn push_config(bin: &Bin, config: &Config) -> Result<u32, libmeld::Error> {
         bin.db.add_version(&new_ver)?;
 
         new_ver.ver
-    // } else if cur_version.data_hash == new_hash && cur_version.tag != config.get_tag().to_string() {
-    //     info!("Tag differs; updating");
-    //     bin.db.update_version_tag(&cur_version, config.get_tag())?;
-    //     cur_version.ver
+    } else if cur_version.data_hash == config_hash
+        && cur_version.tag != config.get_tag().to_string()
+        && cur_version.tag != ""
+    {
+        info!("Tag differs; updating");
+        bin.db.update_version_tag(&cur_version, config.get_tag())?;
+        cur_version.ver
     } else {
         info!("Config matches most recent version; no updates needed");
         cur_version.ver

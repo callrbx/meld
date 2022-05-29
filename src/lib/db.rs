@@ -306,4 +306,46 @@ impl Database {
 
         return Ok(());
     }
+
+    // Update a config's subset
+    pub fn update_subset(&self, blob: &String, subset: &String) -> Result<(), Error> {
+        info!("Updating blobs subset '{}'", subset);
+
+        let con = match Connection::open(&self.path) {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        // Insert version into DB versions table
+        match con.execute(
+            "UPDATE configs SET subset=?1 WHERE id = ?2",
+            params![subset, blob],
+        ) {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        return Ok(());
+    }
+
+    // Update a config's family
+    pub fn update_family(&self, blob: &String, family: &String) -> Result<(), Error> {
+        info!("Updating blobs family '{}'", family);
+
+        let con = match Connection::open(&self.path) {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        // Insert version into DB versions table
+        match con.execute(
+            "UPDATE configs SET family=?1 WHERE id = ?2",
+            params![family, blob],
+        ) {
+            Ok(c) => c,
+            Err(e) => return Err(Error::SQLError { msg: e.to_string() }),
+        };
+
+        return Ok(());
+    }
 }

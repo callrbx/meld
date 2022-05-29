@@ -10,15 +10,8 @@ pub fn real_path_to_map(path: &String) -> Result<String, Error> {
     // make a best guess, strip, and look for it based in the current folder
     if !crate::exists(path) {
         let clean = path_clean::clean(path);
-        let mut cur_dir = std::env::current_dir()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .to_string();
-        cur_dir.push('/');
-        cur_dir.push_str(&clean);
-        info!("File does not exist: best guess - {}", cur_dir);
-        return Ok(cur_dir);
+        info!("File does not exist: best guess - {}", clean);
+        return Ok(clean);
     }
 
     info!("mapping: {}", path);

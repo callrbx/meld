@@ -68,9 +68,9 @@ fn pull_file(
     let path = mapper::map_to_real_path(&map_path)?;
 
     let cur_hash = if libmeld::exists(&path) {
-        Some(hash_contents(&path)?)
+        Some(hash_contents(&path)?).unwrap()
     } else {
-        None
+        "".to_string()
     };
 
     let mut found_ver = 0;
@@ -119,15 +119,20 @@ fn pull_file(
     info!("Pulling version {}", pulled_version.ver);
 
     // check if update needed
-    let update_needed = if cur_hash.is_some() {
-        pulled_version.data_hash != cur_hash.unwrap()
-    } else {
-        true
-    };
+    let update_needed = pulled_version.data_hash != cur_hash;
 
     if update_needed {
         info!("Updating config");
-        copy_file(&path, blob, &bin.get_blobs_str()?, pulled_version.ver)?;
+        if pulled_version.data_hash == "DIR" {
+            info!("creating new dir");
+            if fs::create_dir(path).is_err() {
+                return Err(Error::IOError {
+                    msg: "Failed to create path".to_string(),
+                });
+            }
+        } else {
+            copy_file(&path, blob, &bin.get_blobs_str()?, pulled_version.ver)?;
+        }
     } else {
         info!("Content matches, not updating");
     }
