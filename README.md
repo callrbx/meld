@@ -4,6 +4,8 @@
 
 ## Meld Docs
 
+[Upstream Repo](https://gitlab.parker.systems/meld/meld-rust)
+
 The spec and design choices for Meld
 
 ## Goal
