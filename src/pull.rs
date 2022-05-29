@@ -1,244 +1,204 @@
-use crate::meld;
-use crate::meld::Config;
-use crate::util;
-use crate::Args;
+use std::{
+    fs,
+    io::{BufRead, BufReader},
+};
 
+use crate::Args;
+use libmeld::{hash_contents, hash_path, mapper, Bin, Error};
+use log::{debug, error, info, warn};
 use structopt::StructOpt;
 
+// Define Module Arguments
 #[derive(Debug, StructOpt, Clone)]
 pub struct PullArgs {
-    #[structopt(short = "v", long = "version", help = "revert to a specific version")]
-    version: Option<String>,
+    #[structopt(
+        short = "r",
+        long = "recent",
+        help = "if matching tag not found, pull most recent"
+    )]
+    pub(crate) recent: bool,
 
-    #[structopt(short = "f", long = "force", help = "force update on existing dir")]
-    force: bool,
-
-    #[structopt(help = "config object to pull")]
-    config: String,
+    #[structopt(short = "t", long = "tag", default_value = "", help = "config tag")]
+    pub(crate) tag: String,
+    #[structopt(short = "v", long = "version", default_value = "0", help = "version")]
+    pub(crate) version: u32,
+    #[structopt(help = "config file/folder to pull")]
+    pub(crate) config_path: String,
 }
 
-fn pull_file(config: &mut Config, debug: bool, version: Option<String>) -> bool {
-    if debug {
-        util::info_message(&format!("Pulling config file {}", config.blob_name));
-    }
+/// Function to actually copy configs from the blobs directory
+fn copy_file(
+    path: &String,
+    blob_name: &String,
+    blobs_dir: &String,
+    version: u32,
+) -> Result<(), Error> {
+    // construct blob and version path for config
+    let blob_ver_path = format!("{}/{}/{}", blobs_dir, blob_name, version);
 
-    return match config.bin.pull_file(config, version) {
-        Ok(_) => {
-            if debug {
-                util::good_message("Config pulled successfully");
-            }
-            true
-        }
-        Err(e) => {
-            util::crit_message(&e.to_string());
-            false
-        }
+    debug!("copy {} -> {}", blob_ver_path, path);
+
+    let real_path = mapper::map_to_real_path(path)?;
+
+    return match fs::copy(blob_ver_path, real_path) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(Error::IOError { msg: e.to_string() }),
     };
 }
 
-fn pull_dir(config: &mut Config, debug: bool, version: Option<String>, force: bool) -> bool {
-    if debug {
-        util::info_message(&format!("Pulling config dir {}", config.blob_name));
-    }
+/// Pull single file from the DB
+fn pull_file(
+    bin: &Bin,
+    blob: &String,
+    tag: &String,
+    recent: bool,
+    version: u32,
+) -> Result<(), libmeld::Error> {
+    let config_versions = bin.db.get_versions(blob)?;
 
-    // Match last tracked version or user specified
-    return match config.bin.pull_dir(config, version, force) {
-        Ok(_) => {
-            if debug {
-                util::good_message("Config pulled successfully");
-            }
-            true
-        }
-        Err(e) => {
-            util::crit_message(&e.to_string());
-            false
+    let map_path = match bin.db.get_mapped_path(&blob)? {
+        Some(s) => s,
+        None => {
+            return Err(Error::FileNotFound {
+                msg: blob.to_string(),
+            })
         }
     };
-}
 
-pub fn pull_core(margs: Args, args: PullArgs) -> bool {
-    let bin = meld::Bin::new(margs.bin);
+    let path = mapper::map_to_real_path(&map_path)?;
 
-    let mut config = match meld::Config::new(args.config, "".to_string(), "".to_string(), bin, true)
-    {
-        Err(e) => {
-            util::crit_message(&format!("{}", e));
-            return false;
-        }
-        Ok(c) => c,
-    };
-
-    if margs.debug {
-        util::info_message(&format!("Pulling config {}", config.real_path));
-    }
-
-    return if !config.is_dir {
-        pull_file(&mut config, margs.debug, args.version)
+    let cur_hash = if libmeld::exists(&path) {
+        Some(hash_contents(&path)?).unwrap()
     } else {
-        pull_dir(&mut config, margs.debug, args.version, args.force)
+        "".to_string()
     };
+
+    let mut found_ver = 0;
+    let mut max_ver = 0;
+    let mut pull_ver = "";
+
+    for (k, v) in &config_versions {
+        if tag != "" && tag == &v.tag {
+            debug!("Found matching tag: \"{}\" - {}", tag, k);
+            found_ver = v.ver;
+            pull_ver = k;
+            break;
+        }
+        if version != 0 && version == v.ver {
+            debug!("Found matching version: \"{}\" - {}", version, k);
+            found_ver = v.ver;
+            pull_ver = k;
+            break;
+        }
+        if v.ver > max_ver {
+            max_ver = v.ver;
+            pull_ver = k;
+        }
+    }
+
+    if tag != "" && version != 0 && found_ver == 0 {
+        warn!("Failed to find specified matching version");
+        if recent {
+            info!("Updating to most recent version");
+        } else {
+            error!("Run with -r to override to most recent");
+            return Err(Error::TagNotFound {
+                msg: tag.to_string(),
+            });
+        }
+    }
+
+    let pulled_version = match config_versions.get(pull_ver) {
+        Some(v) => v,
+        None => {
+            error!("Something failed in matching versions");
+            return Err(Error::SomethingFailed);
+        }
+    };
+
+    info!("Pulling version {}", pulled_version.ver);
+
+    // check if update needed
+    let update_needed = pulled_version.data_hash != cur_hash;
+
+    if update_needed {
+        info!("Updating config");
+        if pulled_version.data_hash == "DIR" {
+            info!("creating new dir");
+            if fs::create_dir(path).is_err() {
+                return Err(Error::IOError {
+                    msg: "Failed to create path".to_string(),
+                });
+            }
+        } else {
+            copy_file(&path, blob, &bin.get_blobs_str()?, pulled_version.ver)?;
+        }
+    } else {
+        info!("Content matches, not updating");
+    }
+
+    return Ok(());
 }
 
-#[cfg(test)]
-mod tests {
-    use std::fs;
-    use std::io::Write;
+/// Main handler for pulling configs from the Meld Bins
+pub fn handler(main_args: Args, args: PullArgs) -> Result<(), libmeld::Error> {
+    let bin = Bin::from(main_args.bin)?;
 
-    use serial_test::serial;
+    let config_map_path = mapper::real_path_to_map(&args.config_path)?;
 
-    use super::*;
-    use crate::{
-        init::{init_core, InitArgs},
-        push::PushArgs,
-        Command,
+    // Look up the config in the db
+    let blob = match bin.db.config_exists(&config_map_path)? {
+        Some(b) => b,
+        None => {
+            return Err(Error::IOError {
+                msg: "blob not found".to_string(),
+            })
+        }
     };
 
-    const TEST_BIN: &str = "/tmp/meld_push_test/";
-    const TEST_CONF: &str = "/tmp/meld_push_test.config";
+    info!("Config path matched: {}", blob);
 
-    fn cleanup() {
-        match fs::remove_dir_all(TEST_BIN) {
-            _ => {}
+    let map_blob = hash_path(&args.config_path);
+    let map = bin.db.get_current_map(&map_blob)?;
+
+    if map.is_none() {
+        debug!("Config is single file; pull directly");
+        pull_file(&bin, &blob, &args.tag, args.recent, args.version)?;
+    } else {
+        let map = map.unwrap();
+        debug!("Config is map; parsing");
+        let mut map_file_str: String = bin.get_maps_str()?;
+        // build map file string from bin parts and found version
+        map_file_str.push('/');
+        map_file_str.push_str(&map_blob);
+        map_file_str.push('-');
+        map_file_str.push_str(&map.ver.to_string());
+        info!("Parsing {}", map_file_str);
+        let map_file = match fs::File::open(map_file_str) {
+            Ok(f) => f,
+            Err(e) => {
+                return Err(Error::IOError { msg: e.to_string() });
+            }
+        };
+        let map_reader = BufReader::new(map_file);
+
+        for config in map_reader.lines() {
+            match config {
+                Ok(c) => {
+                    let (blob, version) = c.split_once('-').unwrap();
+                    debug!("Pulling {} V {}", blob, version);
+                    pull_file(
+                        &bin,
+                        &blob.to_string(),
+                        &args.tag,
+                        args.recent,
+                        version.parse::<u32>().unwrap(),
+                    )?;
+                }
+                Err(e) => return Err(Error::IOError { msg: e.to_string() }),
+            }
         }
-
-        match fs::remove_file(TEST_CONF) {
-            _ => {}
-        }
     }
 
-    // init a new bin and create a sample file
-    fn init_bin() {
-        let mut file = fs::File::create(TEST_CONF).unwrap();
-        file.write_all("test=true\n".as_bytes()).unwrap();
-
-        let margs = Args {
-            debug: true,
-            bin: String::from(TEST_BIN),
-            command: Command::Init(InitArgs {
-                make_parents: false,
-                force: false,
-            }),
-        };
-
-        let mod_args = InitArgs {
-            make_parents: false,
-            force: false,
-        };
-
-        init_core(margs, mod_args);
-    }
-
-    // add a sample config to the bin
-    fn push_config() {
-        let margs = Args {
-            debug: true,
-            bin: String::from(TEST_BIN),
-            command: Command::Push(PushArgs {
-                config_path: TEST_CONF.to_string(),
-                subset: "".to_string(),
-                tag: "".to_string(),
-                force: false,
-            }),
-        };
-
-        let mod_args = match margs.clone().command {
-            Command::Push(a) => a,
-            _ => std::process::exit(1),
-        };
-
-        crate::push::push_core(margs, mod_args);
-    }
-
-    // test pulling a new config file
-    #[test]
-    #[serial]
-    fn pull_new_config() {
-        // setup code - init bin, add file, remove file for "new"
-        cleanup();
-        init_bin();
-        push_config();
-        fs::remove_file(TEST_CONF).unwrap();
-
-        // test code
-        let margs = Args {
-            debug: true,
-            bin: String::from(TEST_BIN),
-            command: Command::Pull(PullArgs {
-                config: TEST_CONF.to_string(),
-                version: None,
-                force: false,
-            }),
-        };
-
-        let mod_args = match margs.clone().command {
-            Command::Pull(a) => a,
-            _ => std::process::exit(1),
-        };
-
-        let res = super::pull_core(margs, mod_args);
-        assert_eq!(res, true);
-        assert_eq!(util::path_exists(TEST_CONF), true);
-    }
-
-    // test pulling a good reversion
-    #[test]
-    #[serial]
-    fn pull_good_reversion() {
-        // setup code - init bin, add file, remove file for "new"
-        cleanup();
-        init_bin();
-        push_config();
-        fs::remove_file(TEST_CONF).unwrap();
-
-        // test code
-        let margs = Args {
-            debug: true,
-            bin: String::from(TEST_BIN),
-            command: Command::Pull(PullArgs {
-                config: TEST_CONF.to_string(),
-                version: Some("1".to_string()),
-                force: false,
-            }),
-        };
-
-        let mod_args = match margs.clone().command {
-            Command::Pull(a) => a,
-            _ => std::process::exit(1),
-        };
-
-        let res = super::pull_core(margs, mod_args);
-        assert_eq!(res, true);
-        assert_eq!(util::path_exists(TEST_CONF), true);
-    }
-
-    // test pulling a bad reversion
-    #[test]
-    #[serial]
-    fn pull_bad_reversion() {
-        // setup code - init bin, add file, remove file for "new"
-        cleanup();
-        init_bin();
-        push_config();
-        fs::remove_file(TEST_CONF).unwrap();
-
-        // test code
-        let margs = Args {
-            debug: true,
-            bin: String::from(TEST_BIN),
-            command: Command::Pull(PullArgs {
-                config: TEST_CONF.to_string(),
-                version: Some("100".to_string()), // bad reversion
-                force: false,
-            }),
-        };
-
-        let mod_args = match margs.clone().command {
-            Command::Pull(a) => a,
-            _ => std::process::exit(1),
-        };
-
-        let res = super::pull_core(margs, mod_args);
-        assert_eq!(res, false);
-        assert_eq!(util::path_exists(TEST_CONF), false);
-    }
+    return Ok(());
 }

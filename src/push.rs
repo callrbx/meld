@@ -1,13 +1,22 @@
-use crate::meld;
-use crate::meld::Config;
-use crate::meld::UpdateType;
-use crate::util;
+use std::{
+    fs::{self, File},
+    io::Write,
+};
+
 use crate::Args;
+use libmeld::{is_dir, mapper, Bin, Config, Error, Map, Version};
+use log::{debug, info};
 use structopt::StructOpt;
 
+// Define Module Arguments
 #[derive(Debug, StructOpt, Clone)]
 pub struct PushArgs {
-    #[structopt(short = "s", long = "subset", default_value = "", help = "subset tag")]
+    #[structopt(
+        short = "s",
+        long = "subset",
+        default_value = "",
+        help = "config subset"
+    )]
     pub(crate) subset: String,
 
     #[structopt(short = "t", long = "tag", default_value = "", help = "config tag")]
@@ -15,255 +24,201 @@ pub struct PushArgs {
 
     #[structopt(
         short = "f",
-        long = "force",
-        help = "force update (only effects dir configs)"
+        long = "family",
+        default_value = "",
+        help = "config family"
     )]
-    pub(crate) force: bool,
+    pub(crate) family: String,
 
     #[structopt(help = "config file/folder to add")]
     pub(crate) config_path: String,
 }
 
-fn push_file(config: &mut Config, debug: bool) -> bool {
-    if debug {
-        util::info_message(&format!("Attempting to track {}", config.blob_name))
+/// Function to actually copy configs to the blobs directory
+fn copy_file(
+    path: &String,
+    blob_name: &String,
+    blobs_dir: &String,
+    version: u32,
+) -> Result<(), Error> {
+    // ignore dirs if the are copied
+    if is_dir(&path)? {
+        return Ok(());
     }
 
-    let res = match config.get_update_type() {
-        UpdateType::NewConfig => config.bin.add_config(&config),
-        UpdateType::UpdateAll => config.bin.update_all(&config),
-        UpdateType::UpdateSubset => config.bin.update_subset(&config),
-        UpdateType::UpdateContent => config.bin.update_content(&config),
-        UpdateType::NoUpdate => Ok(util::good_message("No Update Needed")),
-    };
+    // construct blob and version path for config
+    let blob_ver_path = format!("{}/{}/{}", blobs_dir, blob_name, version);
 
-    match res {
-        Ok(_) => {}
-        Err(e) => {
-            util::crit_message(&e.to_string());
-            return false;
-        }
-    }
+    debug!("copy {} -> {}", path, blob_ver_path);
 
-    if debug {
-        util::info_message("Copying config to blobs");
-    }
-
-    return match config.bin.push_file(config) {
-        Ok(_) => {
-            if debug {
-                util::good_message("Sucessfully copied config");
-            }
-            true
-        }
-        Err(e) => {
-            util::crit_message(&e.to_string());
-            return false;
-        }
+    return match fs::copy(path, blob_ver_path) {
+        Ok(_) => Ok(()),
+        Err(e) => Err(Error::IOError { msg: e.to_string() }),
     };
 }
 
-fn push_dir(config: &mut Config, debug: bool, force: bool) -> bool {
-    if debug {
-        util::info_message(&format!("Attempting to track {}", config.blob_name))
+/// Push new config to Bin
+/// will determine updates needed per config
+/// Returns the version of either currently tracked config
+fn push_config(bin: &Bin, config: &Config) -> Result<u32, libmeld::Error> {
+    let cur_version = bin.db.get_current_version(config.get_blob())?;
+
+    // if config is not in DB, add it
+    // if config is in DB, determine updates
+    if cur_version.is_none() {
+        info!("Adding new config to bin");
+        let version = Version {
+            data_hash: config.get_hash().to_string(),
+            ver: 1,
+            tag: config.get_tag().to_string(),
+            owner: config.get_blob().to_string(),
+        };
+
+        // create the blob dir
+        match fs::create_dir(format!("{}/{}", bin.get_blobs_str()?, config.get_blob())) {
+            Ok(_) => (),
+            Err(e) => return Err(Error::IOError { msg: e.to_string() }),
+        }
+
+        // copy to blobs
+        copy_file(
+            config.get_real_path(),
+            config.get_blob(),
+            &bin.get_blobs_str()?,
+            1,
+        )?;
+
+        // add to db after a successful copy
+        bin.db.add_version(&version)?;
+        bin.db.add_config(&config)?;
+
+        // version is one since just added
+        return Ok(1);
     }
 
-    let res = match config.get_update_type() {
-        UpdateType::NewConfig => config.bin.add_config(&config),
-        UpdateType::UpdateSubset => config.bin.update_subset(&config),
-        UpdateType::NoUpdate => Ok(util::good_message("No Update Needed")),
-        UpdateType::UpdateContent | UpdateType::UpdateAll => {
-            config.bin.update_subset(&config).unwrap();
-            if !force {
-                util::crit_message("Dir config exist; use -f to overwrite");
-                std::process::exit(1);
-            } else {
-                util::info_message("Updating all files in config dir");
-                config.bin.update_content(config)
-            }
-        }
-    };
-
-    match res {
-        Ok(_) => {}
-        Err(e) => {
-            util::crit_message(&e.to_string());
-            return false;
-        }
+    // handle admin updates
+    if config.subset != "" {
+        bin.db.update_subset(config.get_blob(), &config.subset)?;
     }
 
-    if debug {
-        util::info_message("Copying config dir to blobs");
+    if config.family != "" {
+        bin.db.update_family(config.get_blob(), &config.family)?;
     }
 
-    return match config.bin.push_dir(config) {
-        Ok(_) => {
-            if debug {
-                util::good_message("Sucessfully copied config");
-            }
-            true
-        }
-        Err(e) => {
-            util::crit_message(&e.to_string());
-            return false;
-        }
-    };
-}
+    // handle versions table updates
+    let cur_version = cur_version.unwrap();
 
-pub fn push_core(margs: Args, args: PushArgs) -> bool {
-    let bin = meld::Bin::new(margs.bin);
+    info!("Config exists in bin; determining needed updates");
+    let config_hash = config.get_hash().to_string();
+    let new_ver = cur_version.ver + 1;
 
-    let mut config = match meld::Config::new(args.config_path, args.subset, args.tag, bin, false) {
-        Err(e) => {
-            util::crit_message(&format!("{}", e));
-            return false;
-        }
-        Ok(c) => c,
-    };
+    // do proper update action; return the current version num in db
+    let db_ver = if cur_version.data_hash != config_hash {
+        info!("Content differs; adding new version");
+        let new_ver = Version {
+            data_hash: config_hash,
+            ver: new_ver,
+            tag: config.get_tag().to_string(),
+            owner: config.get_blob().to_string(),
+        };
 
-    if margs.debug {
-        util::info_message(&format!("Pushing config {}", config.real_path));
-    }
+        // copy to blobs
+        copy_file(
+            config.get_real_path(),
+            config.get_blob(),
+            &bin.get_blobs_str()?,
+            new_ver.ver,
+        )?;
 
-    return if !config.is_dir {
-        push_file(&mut config, margs.debug)
+        // add to db after good copy
+        bin.db.add_version(&new_ver)?;
+
+        new_ver.ver
+    } else if cur_version.data_hash == config_hash
+        && cur_version.tag != config.get_tag().to_string()
+        && cur_version.tag != ""
+    {
+        info!("Tag differs; updating");
+        bin.db.update_version_tag(&cur_version, config.get_tag())?;
+        cur_version.ver
     } else {
-        push_dir(&mut config, margs.debug, args.force)
+        info!("Config matches most recent version; no updates needed");
+        cur_version.ver
     };
+
+    // return the new version
+    return Ok(db_ver);
 }
 
-#[cfg(test)]
-mod tests {
-    use std::{fs, io::Write};
+/// Main handler for pushing configs to Meld Bins
+pub fn handler(main_args: Args, args: PushArgs) -> Result<(), libmeld::Error> {
+    let bin = Bin::from(main_args.bin)?;
 
-    use serial_test::serial;
+    // handle single file config pushes
+    if !is_dir(&args.config_path)? {
+        debug!("Pushing single file");
+        let map_path = mapper::real_path_to_map(&args.config_path)?;
+        let config = Config::from(
+            args.config_path,
+            map_path,
+            args.subset.clone(),
+            args.family.clone(),
+            args.tag.clone(),
+        )?;
+        push_config(&bin, &config)?;
+    } else {
+        debug!("Pushing dir tree");
+        // create map and add to db
+        let mut map = Map::new(&args.config_path, args.subset, args.family, args.tag)?;
+        info!("Map contains {} configs", map.configs.len());
 
-    use super::*;
-    use crate::{
-        init::{init_core, InitArgs},
-        Command,
-    };
+        // check if map exists; if it does, check if the hashes match
+        // update the map version accordingly; 0 if update not needed
+        map.ver = match bin.db.get_current_map(&map.blob)? {
+            Some(m) => {
+                info!(
+                    "Map for {} exists; determining if update needed",
+                    args.config_path
+                );
+                if m.hash == map.hash {
+                    info!("Stored map matches current map; not updating");
+                    0
+                } else {
+                    m.ver + 1
+                }
+            }
+            None => {
+                info!("Map not in db; adding");
+                1
+            }
+        };
+        // add the map to the db if new or not matching most recent hash
+        if map.ver != 0 {
+            bin.db.add_map(&map)?;
+            let mut map_file =
+                match File::create(format!("{}/{}-{}", bin.get_maps_str()?, map.blob, map.ver)) {
+                    Ok(f) => f,
+                    Err(e) => return Err(Error::IOError { msg: e.to_string() }),
+                };
 
-    const TEST_BIN: &str = "/tmp/meld_push_test/";
-    const TEST_CONF: &str = "/tmp/meld_push_test.config";
-
-    fn cleanup() {
-        match fs::remove_dir_all(TEST_BIN) {
-            _ => {}
+            // push all the configs in the map and write map file
+            // each config will update and track state separetly
+            for c in map.configs {
+                info!("Handling Config {}", c.get_real_path());
+                let cv = push_config(&bin, &c)?;
+                match map_file.write_fmt(format_args!("{}-{}\n", c.get_blob(), cv)) {
+                    Ok(_) => (),
+                    Err(e) => return Err(Error::IOError { msg: e.to_string() }),
+                };
+            }
+        } else {
+            // if we dont need to rewrite the config
+            // still update the configs as contents may have changed
+            for c in map.configs {
+                push_config(&bin, &c)?;
+            }
         }
-
-        match fs::remove_file(TEST_CONF) {
-            _ => {}
-        }
     }
 
-    // init a new bin and create a sample file
-    fn init_bin() {
-        let mut file = fs::File::create(TEST_CONF).unwrap();
-        file.write_all("test=true\n".as_bytes()).unwrap();
-
-        let margs = Args {
-            debug: true,
-            bin: String::from(TEST_BIN),
-            command: Command::Init(InitArgs {
-                make_parents: false,
-                force: false,
-            }),
-        };
-
-        let mod_args = InitArgs {
-            make_parents: false,
-            force: false,
-        };
-
-        init_core(margs, mod_args);
-    }
-
-    // test adding that sample file to the bin
-    #[test]
-    #[serial]
-    fn push_config() {
-        cleanup();
-        init_bin();
-
-        let margs = Args {
-            debug: true,
-            bin: String::from(TEST_BIN),
-            command: Command::Push(PushArgs {
-                config_path: TEST_CONF.to_string(),
-                subset: "".to_string(),
-                tag: "".to_string(),
-                force: false,
-            }),
-        };
-
-        let mod_args = match margs.clone().command {
-            Command::Push(a) => a,
-            _ => std::process::exit(1),
-        };
-
-        let res = super::push_core(margs, mod_args);
-
-        assert_eq!(res, true);
-        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/"), true);
-        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/1"), true);
-    }
-
-    // modify that file and test the version is updated
-    #[test]
-    #[serial]
-    fn push_update_config() {
-        cleanup();
-        init_bin();
-
-        let margs = Args {
-            debug: true,
-            bin: String::from(TEST_BIN),
-            command: Command::Push(PushArgs {
-                config_path: TEST_CONF.to_string(),
-                subset: "".to_string(),
-                tag: "".to_string(),
-                force: false,
-            }),
-        };
-
-        let mod_args = match margs.clone().command {
-            Command::Push(a) => a,
-            _ => std::process::exit(1),
-        };
-
-        let res = super::push_core(margs, mod_args);
-
-        assert_eq!(res, true);
-        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/"), true);
-        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/1"), true);
-
-        let mut file = fs::File::create(TEST_CONF).unwrap();
-        file.write_all("test=false\n".as_bytes()).unwrap();
-
-        let margs = Args {
-            debug: true,
-            bin: String::from(TEST_BIN),
-            command: Command::Push(PushArgs {
-                config_path: TEST_CONF.to_string(),
-                subset: "".to_string(),
-                tag: "".to_string(),
-                force: false,
-            }),
-        };
-
-        let mod_args = match margs.clone().command {
-            Command::Push(a) => a,
-            _ => std::process::exit(1),
-        };
-
-        let res = super::push_core(margs, mod_args);
-
-        assert_eq!(res, true);
-        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/"), true);
-        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/1"), true);
-        assert_eq!(util::path_exists("/tmp/meld_push_test/blobs/e37329b0255f680a3384bc0161182d7448097fc0e5a9a5827437b873f600b5a5790fa7d619323e4212318f406cda6644c2eb60a20030dc48264678ca3137b767/2"), true);
-
-        cleanup();
-    }
+    return Ok(());
 }
